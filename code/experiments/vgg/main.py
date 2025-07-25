@@ -63,7 +63,7 @@ def get_config():
     base_dir = SCRIPT_DIR.parents[2] / "results"
 
     # Logger
-    log_dir = "{}/{}/{}/seed_{}_bs_{}_rho_{}/".format(
+    log_dir = "{}/{}/{}/bs_{}_rho_{}/".format(
         base_dir,
         args.model_name,
         args.dataset,
@@ -73,7 +73,7 @@ def get_config():
     )
     # Logger
     if args.no_sam:
-        log_dir = "{}/{}/{}/seed_{}_bs_{}_rho_{}/".format(
+        log_dir = "{}/{}/{}/bs_{}_rho_{}/".format(
             base_dir,
             args.model_name + "_without_sam",
             args.dataset,
@@ -83,7 +83,7 @@ def get_config():
             args.batch_size,
         )
     else:
-        log_dir = "{}/{}/{}/seed_{}_bs_{}_rho_{}/".format(
+        log_dir = "{}/{}/{}/bs_{}_rho_{}/".format(
             base_dir,
             args.model_name + "_sam",
             args.dataset,

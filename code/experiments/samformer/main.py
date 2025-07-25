@@ -67,7 +67,7 @@ def get_config():
 
     # Logger
     if args.no_sam:
-        log_dir = "{}/{}/{}/seed_{}_seq_len_{}_pred_len_{}_bs_{}/".format(
+        log_dir = "{}/{}/{}/seq_len_{}_pred_len_{}_bs_{}/".format(
             base_dir,
             args.model_name + "_without_sam",
             args.dataset,
@@ -77,7 +77,7 @@ def get_config():
             args.batch_size,
         )
     else:
-        log_dir = "{}/{}/{}/seed_{}_seq_len_{}_pred_len_{}_bs_{}_rho_{}/".format(
+        log_dir = "{}/{}/{}/seq_len_{}_pred_len_{}_bs_{}_rho_{}/".format(
             base_dir,
             args.model_name,
             args.dataset,
