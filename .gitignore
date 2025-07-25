@@ -1,0 +1,15 @@
+# Ignore all hidden files and directories
+.*
+
+# But allow .gitignore itself to be tracked
+!.gitignore
+
+# Ignore all __pycache__ directories recursively
+**/__pycache__/
+
+# Ignore results data
+results/*/
+
+# Ignore all data
+data/cifar10_datasets/*/
+data/samformer_datasets/*
