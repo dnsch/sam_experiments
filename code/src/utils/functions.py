@@ -9,13 +9,10 @@ from pathlib import Path
 from scipy.sparse.linalg import LinearOperator, eigsh
 import h5py
 import sys
-import os
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.append(str(SCRIPT_DIR.parents[2]))
-from extra.loss_landscape.net_plotter import name_direction_file
-from extra.loss_landscape.h5_util import write_list
-from src.models import samformer
+from extra.loss-landscape.net_plotter import name_direction_file
 
 
 def plot_train_val_loss(total_train_loss, loss, loss_string, epochs, plot_path):
