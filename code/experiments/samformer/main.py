@@ -4,7 +4,7 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.append(str(SCRIPT_DIR.parents[1]))
-sys.path.append(str(SCRIPT_DIR.parents[2] / "extra" / "loss-landscape"))
+sys.path.append(str(SCRIPT_DIR.parents[2] / "extra" / "loss_landscape"))
 
 from src.models.samformer import SAMFormerArchitecture
 from src.engines.samformer_engine import SAMFormer_Engine

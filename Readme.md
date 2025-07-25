@@ -108,7 +108,7 @@ This repository includes a modified version of [loss-landscape](https://github.c
 To generate a loss surface plot in a `1x1` region around a trained model’s local minimum with a resolution of `20x20`, run:
 
 ```bash
-python extra/loss-landscape/plot_surface.py --mpi --cuda --x=-1:1:20 --y=-1:1:20 \
+python extra/loss_landscape/plot_surface.py --mpi --cuda --x=-1:1:20 --y=-1:1:20 \
 --vmax=0.5 --vlevel=0.01 \
 --model_file results/samformer/ETTh1/seed_2024_seq_len_512_pred_len_96_bs_256_rho_0.5/final_model_s2023.pt \
 --dir_type weights --xnorm filter --xignore biasbn \
@@ -121,7 +121,7 @@ The resulting plot will be saved in the 📁 [`plots/loss_surface/`](plots/loss_
 
 Use the `--vmax` flag to cap the maximum loss value, which is helpful when comparing different landscapes. For an explanation of all available options, use the `--help` flag.
 
-All argument parsing is handled in 📄 [`extra/loss-landscape/plot_surface.py`](extra/loss-landscape/plot_surface.py), which is a modified version of the original. Outdated functions (mostly related to MPI) were updated to ensure compatibility. However, this version was **not tested** with MPI or multi-GPU setups, so some original functionality may not be preserved.
+All argument parsing is handled in 📄 [`extra/loss_landscape/plot_surface.py`](extra/loss_landscape/plot_surface.py), which is a modified version of the original. Outdated functions (mostly related to MPI) were updated to ensure compatibility. However, this version was **not tested** with MPI or multi-GPU setups, so some original functionality may not be preserved.
 
 ---
 

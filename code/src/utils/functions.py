@@ -12,7 +12,7 @@ import sys
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.append(str(SCRIPT_DIR.parents[2]))
-from extra.loss-landscape.net_plotter import name_direction_file
+from extra.loss_landscape.net_plotter import name_direction_file
 
 
 def plot_train_val_loss(total_train_loss, loss, loss_string, epochs, plot_path):
