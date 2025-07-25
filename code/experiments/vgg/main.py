@@ -67,7 +67,6 @@ def get_config():
         base_dir,
         args.model_name,
         args.dataset,
-        args.seed,
         args.batch_size,
         args.rho,
     )
@@ -77,7 +76,6 @@ def get_config():
             base_dir,
             args.model_name + "_without_sam",
             args.dataset,
-            args.seed,
             args.seq_len,
             args.horizon,
             args.batch_size,
@@ -87,7 +85,6 @@ def get_config():
             base_dir,
             args.model_name + "_sam",
             args.dataset,
-            args.seed,
             args.batch_size,
             args.rho,
         )
