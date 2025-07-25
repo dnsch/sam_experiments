@@ -28,8 +28,6 @@ def main():
     scripts = [
         "download_samformer_dataset.py",
         "download_cifar10_dataset.py",
-        "setup_influxdb.py",
-        "write_data_to_influxdb.py",
     ]
     for script in scripts:
         run_command(script)

@@ -6,6 +6,15 @@ This repository contains code for experiments exploring the relationship between
 
 ## Instructions
 
+#### Cloning the repository
+
+To clone this repository with the necessary modified submodules use the
+following command:
+
+```bash
+git clone --recurse-submodules https://github.com/dnsch/sam_experiments.git
+```
+
 #### Setting Up the Virtual Environment
 
 To run the code, you must first set up a Python environment with the required dependencies specified in 📄 [`requirements.txt`](requirements.txt). The code was tested with **Python 3.12.11**.
@@ -110,7 +119,7 @@ To generate a loss surface plot in a `1x1` region around a trained model’s loc
 ```bash
 python extra/loss_landscape/plot_surface.py --mpi --cuda --x=-1:1:20 --y=-1:1:20 \
 --vmax=0.5 --vlevel=0.01 \
---model_file results/samformer/ETTh1/seed_2024_seq_len_512_pred_len_96_bs_256_rho_0.5/final_model_s2023.pt \
+--model_file results/samformer/ETTh1/seq_len_512_pred_len_96_bs_256_rho_0.5/final_model_s1.pt \
 --dir_type weights --xnorm filter --xignore biasbn \
 --ynorm filter --yignore biasbn --plot \
 --dataset samformer_datasets --model samformer \
