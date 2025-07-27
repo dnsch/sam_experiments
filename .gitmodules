@@ -1,9 +1,6 @@
 [submodule "extra/sam"]
 	path = extra/sam
 	url = https://github.com/davda54/sam
-[submodule "extra/loss-landscape"]
-	path = extra/loss-landscape
-	url = https://github.com/tomgoldstein/loss-landscape
 [submodule "extra/loss_landscape"]
 	path = extra/loss_landscape
-	url = https://github.com/tomgoldstein/loss-landscape
+	url = https://github.com/dnsch/loss_landscape.git

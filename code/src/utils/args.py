@@ -4,7 +4,8 @@ import argparse
 def get_public_config():
     parser = argparse.ArgumentParser()
     # Hardware
-    parser.add_argument("--device", type=str, default="cuda:0")
+    # parser.add_argument("--device", type=str, default="cuda:0")
+    parser.add_argument("--device", type=str, default="cpu")
     # parser.add_argument("--dataset", type=str, default="")
     # if need to use the data from multiple years, please use underline to separate them, e.g., 2018_2019
     # parser.add_argument('--years', type=str, default='2019')
