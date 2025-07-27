@@ -23,7 +23,7 @@ A common way to set up an appropriate environment is using the python `venv` com
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # On Windows, use .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -93,7 +93,8 @@ python code/experiments/samformer/main.py --dataset ETTh1 --seed 1 --no_sam
 The script runs on the CPU by default. If you have a CUDA compatible GPU, append your CUDA device via the `--device` flag:
 
 ```bash
-python code/experiments/samformer/main.py --dataset ETTh1 --seed 1 --no_sam --device cuda:0
+python code/experiments/samformer/main.py --dataset ETTh1 --seed 1 --no_sam
+--device cuda:0
 ```
 
 This script will generate training and testing statistics plots. The output includes:
