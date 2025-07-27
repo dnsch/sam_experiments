@@ -90,6 +90,13 @@ To run the same experiment *without SAM*, append the `--no_sam` flag:
 python code/experiments/samformer/main.py --dataset ETTh1 --seed 1 --no_sam
 ```
 
+The script runs on the CPU by default. If you have a CUDA compatible GPU, append your CUDA device via the `--device` flag:
+
+```bash
+python code/experiments/samformer/main.py --dataset ETTh1 --seed 1 --no_sam
+--device cuda:0
+```
+
 This script will generate training and testing statistics plots. The output includes:
 
 * A log file containing the training configuration and progress.
@@ -127,6 +134,8 @@ python extra/loss_landscape/plot_surface.py --mpi --cuda --x=-1:1:20 --y=-1:1:20
 ```
 
 The resulting plot will be saved in the 📁 [`plots/loss_surface/`](plots/loss_surface/) directory.
+
+For usage of CUDA, append the `--cuda` flag.
 
 Use the `--vmax` flag to cap the maximum loss value, which is helpful when comparing different landscapes. For an explanation of all available options, use the `--help` flag.
 
