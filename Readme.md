@@ -9,7 +9,7 @@ This repository contains code for experiments exploring the relationship between
 #### Cloning the repository
 
 To clone this repository with the necessary modified submodules use the
-following command:
+following command in your terminal:
 
 ```bash
 git clone --recurse-submodules https://github.com/dnsch/sam_experiments.git
@@ -19,10 +19,10 @@ git clone --recurse-submodules https://github.com/dnsch/sam_experiments.git
 
 To run the code, you must first set up a Python environment with the required dependencies specified in 📄 [`requirements.txt`](requirements.txt). The code was tested with **Python 3.12.11**.
 
-A common way to set up an appropriate environment is using the python `venv` command:
+To set up a python virtual environment with the necessary packages, you can use the `venv` command inside the cloned sam_experiments directory:
 
 ```bash
-python -m venv .venv
+python -m venv .venv # or python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -30,7 +30,7 @@ pip install -r requirements.txt
 The 📄 [`requirements.txt`](requirements.txt) includes packages that help with downloading the datasets
 and those that are needed to plot the loss surface using [loss-landscape](https://github.com/tomgoldstein/loss-landscape).
 
-Other virtual environment tools include pyenv and uv, these also allow you to specify a Python version and might be faster.
+You can also use [pyenv](https://github.com/pyenv/pyenv) or [uv](https://github.com/astral-sh/uv) to set up the virtual environment, which also allow you to specify a Python version and might be faster.
 
 ---
 
