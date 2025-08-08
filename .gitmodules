@@ -4,3 +4,6 @@
 [submodule "extra/loss_landscape"]
 	path = extra/loss_landscape
 	url = https://github.com/dnsch/loss_landscape.git
+[submodule "extra/tsmixer"]
+	path = extra/tsmixer
+	url = https://github.com/dnsch/pytorch-tsmixer.git
