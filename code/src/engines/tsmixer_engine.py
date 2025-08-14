@@ -9,14 +9,11 @@ from src.utils.functions import (
     mean_branch_plot,
 )
 
-import pdb
 from torchmetrics.regression import MeanAbsolutePercentageError, MeanSquaredError
 
+import pdb
 
-class SAMFormer_Engine(BaseEngine):
-    """
-    SAMFormer pytorch trainer implemented in the sklearn fashion
-    """
+class TSMixer_Engine(BaseEngine):
 
     def __init__(
         self,
@@ -24,10 +21,10 @@ class SAMFormer_Engine(BaseEngine):
         num_channels=1,
         pred_len=1,
         no_sam=True,
-        use_revin=True,
+        use_revin=False,
         **args,
     ):
-        super(SAMFormer_Engine, self).__init__(**args)
+        super(TSMixer_Engine, self).__init__(**args)
         self.batch_size = batch_size
         self.num_channels = num_channels
         self.pred_len = pred_len
@@ -51,16 +48,20 @@ class SAMFormer_Engine(BaseEngine):
             x_batch, y_batch = data
 
             x_batch = self._to_device(x_batch)
+            x_batch = x_batch.permute(0,2,1)
             y_batch = self._to_device(y_batch)
+            
             out_batch = self.model(x_batch, True)
 
             loss = self._loss_fn(out_batch, y_batch)
             mape = self._mape(out_batch, y_batch).item()
             rmse = self._rmse(out_batch, y_batch).item()
+            
             if not self.no_sam:
                 loss.backward()
                 self._optimizer.first_step(zero_grad=True)
 
+                # Second forward pass for SAM
                 out_batch = self.model(x_batch, True)
                 loss = self._loss_fn(out_batch, y_batch)
 
@@ -97,6 +98,7 @@ class SAMFormer_Engine(BaseEngine):
         total_valid_mape = []
         total_valid_rmse = []
         b1 = time.time()
+        
         for epoch in range(self._max_epochs):
             t1 = time.time()
             mtrain_loss, mtrain_mape, mtrain_rmse = self.train_batch()
@@ -129,8 +131,6 @@ class SAMFormer_Engine(BaseEngine):
             )
 
             total_valid_loss.append(mvalid_loss)
-
-            # added:
             total_train_loss.append(mtrain_loss)
             total_train_mape.append(mtrain_mape)
             total_train_rmse.append(mtrain_rmse)
@@ -139,6 +139,7 @@ class SAMFormer_Engine(BaseEngine):
 
             model_list_save_path = self._save_path / "saved_models/"
             self.save_current_model(model_list_save_path, epoch)
+            
             if mvalid_loss < min_loss:
                 self.save_model(self._save_path)
                 self._logger.info(
@@ -158,6 +159,7 @@ class SAMFormer_Engine(BaseEngine):
                     )
                     self._epochs = epoch + 1
                     break
+                    
             b2 = time.time()
             if self._timeout:
                 if (b2 - b1) > (6 * 60 * 60):
@@ -167,6 +169,7 @@ class SAMFormer_Engine(BaseEngine):
                     break
 
             self._epochs = epoch + 1
+            
         try:
             plot_stats(
                 total_train_loss,
@@ -191,12 +194,19 @@ class SAMFormer_Engine(BaseEngine):
 
         preds = []
         labels = []
+        
+        # Use appropriate dataloader for the mode
+        dataloader_key = "val_loader" if mode == "val" else "test_loader"
+        
         with torch.no_grad():
-            for batch_idx, data in enumerate(self._dataloader["val_loader"]):
-                # X (b, t, n, f), label (b, t, n, 1)
+            for batch_idx, data in enumerate(self._dataloader[dataloader_key]):
                 x_batch, y_batch = data
+                x_batch = x_batch.permute(0,2,1)
                 x_batch, y_batch = self._to_device(self._to_tensor([x_batch, y_batch]))
+                
+                # TSMixer forward pass
                 out_batch = self.model(x_batch, True)
+                
                 preds.append(out_batch.squeeze(-1).cpu())
                 labels.append(y_batch.squeeze(-1).cpu())
 
@@ -210,14 +220,16 @@ class SAMFormer_Engine(BaseEngine):
             return mse, mape, rmse
 
         elif mode == "test":
+            # For test mode, recalculate predictions with test_loader
             preds = []
             labels = []
             with torch.no_grad():
                 for batch_idx, data in enumerate(self._dataloader["test_loader"]):
-                    # X (b, t, n, f), label (b, t, n, 1)
                     X, label = data
+                    X = X.permute(0,2,1)
                     X, label = self._to_device(self._to_tensor([X, label]))
                     out_batch = self.model(X, True)
+                    pdb.set_trace()
                     preds.append(out_batch.cpu())
                     labels.append(label.cpu())
 
@@ -234,6 +246,8 @@ class SAMFormer_Engine(BaseEngine):
             mean_per_day_mse = []
             per_day_preds = []
             per_day_labels = []
+            
+            # Reshape for horizon-wise evaluation
             preds, labels = [
                 preds.reshape(preds.shape[0], self.num_channels, self.pred_len),
                 labels.reshape(labels.shape[0], self.num_channels, self.pred_len),
@@ -242,6 +256,8 @@ class SAMFormer_Engine(BaseEngine):
                 torch.permute(preds, (0, 2, 1)),
                 torch.permute(labels, (0, 2, 1)),
             ]
+            
+            # Evaluate per horizon step
             for i in range(self.model.horizon):
                 mse = self._loss_fn(preds[:, i, :], labels[:, i, :])
                 log = "Horizon {:d}, Test MSE: {:.4f}"
@@ -253,6 +269,7 @@ class SAMFormer_Engine(BaseEngine):
 
             log = "Average per day Test MSE: {:.4f},"
             self._logger.info(log.format(np.mean(mean_per_day_mse)))
+            
             var_index = 0
             plot_mean_per_day(
                 per_day_preds,
