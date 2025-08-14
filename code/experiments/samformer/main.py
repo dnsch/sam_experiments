@@ -19,9 +19,15 @@ from src.utils.functions import (
     save_eigenvectors_to_hdf5,
 )
 
+from src.utils.functions import compute_top_eigenvalue_and_eigenvector 
+
 import numpy as np
 import torch
 import pdb
+import copy
+
+
+import matplotlib.pyplot as plt
 
 torch.set_num_threads(3)
 
@@ -175,6 +181,10 @@ def main():
         engine.train()
     elif args.mode == "test":
         engine.evaluate(args.mode)
+
+
+    top_eigenvalue, top_eigenvector = compute_top_eigenvalue_and_eigenvector(model, loss_fn, dataloader["train_loader"])
+    print(f"Max Eigenvalue: {top_eigenvalue}")
 
     if args.hessian_directions:
         max_ev, max_evec, min_ev, min_evec = compute_dominant_hessian_directions(

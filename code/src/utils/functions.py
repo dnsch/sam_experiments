@@ -10,9 +10,12 @@ from scipy.sparse.linalg import LinearOperator, eigsh
 import h5py
 import sys
 
+from pyhessian import hessian
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.append(str(SCRIPT_DIR.parents[2]))
 from extra.loss_landscape.net_plotter import name_direction_file
+import pdb
 
 
 def plot_train_val_loss(total_train_loss, loss, loss_string, epochs, plot_path):
@@ -338,6 +341,18 @@ def plot_mean_per_day(mean_per_day_preds, mean_per_day_labels, plot_path, title)
     plot_filename = plot_dir / "statistics" / title
     plot_filename.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(plot_filename)
+
+# Calculate max Eigenvalue of Hessian (= sharpness of the loss landscape) 
+# using PyHessian
+# https://github.com/amirgholami/PyHessian/tree/master
+def compute_top_eigenvalue_and_eigenvector(model, criterion, data_loader):
+    model.eval()
+    hessian_comp = hessian(model, criterion, dataloader=data_loader, cuda=torch.cuda.is_available())
+    
+    # Compute top eigenvalue
+    top_eigenvalue,top_eigenvector = hessian_comp.eigenvalues(top_n=1)
+    
+    return top_eigenvalue, top_eigenvector
 
 
 # TODO: Experimental vibe coded calculation of hessian directions
