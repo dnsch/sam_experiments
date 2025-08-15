@@ -7,3 +7,6 @@
 [submodule "extra/tsmixer"]
 	path = extra/tsmixer
 	url = https://github.com/dnsch/pytorch-tsmixer.git
+[submodule "extra/pyhessian"]
+	path = extra/pyhessian
+	url = https://github.com/dnsch/PyHessian.git
