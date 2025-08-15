@@ -3,7 +3,10 @@ import sys
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+#TODO: change paths here, don't need all of em
 sys.path.append(str(SCRIPT_DIR.parents[1]))
+sys.path.append(str(SCRIPT_DIR.parents[2]))
+sys.path.append(str(SCRIPT_DIR.parents[2] / "extra" / "pyhessian"))
 sys.path.append(str(SCRIPT_DIR.parents[2] / "extra" / "loss_landscape"))
 
 from src.models.samformer import SAMFormerArchitecture
@@ -30,6 +33,7 @@ import copy
 import matplotlib.pyplot as plt
 
 torch.set_num_threads(3)
+from extra.pyhessian.density_plot import get_esd_plot
 
 
 def set_seed(seed):
@@ -185,6 +189,18 @@ def main():
 
     top_eigenvalue, top_eigenvector = compute_top_eigenvalue_and_eigenvector(model, loss_fn, dataloader["train_loader"])
     print(f"Max Eigenvalue: {top_eigenvalue}")
+
+    from extra.pyhessian.pyhessian import hessian
+    hessian_comp = hessian(model, loss_fn, dataloader=dataloader["train_loader"], cuda=args.device)
+    density_eigen, density_weight = hessian_comp.density()
+
+    # print('\n***Top Eigenvalues: ', top_eigenvalues)
+    # print('\n***Trace: ', np.mean(trace))
+
+    get_esd_plot(density_eigen, density_weight)
+    #TODO: check how many eigenvalues are negative, i.e. negative curvature
+    # -> not converged to perfect local minimum that satisfies 1st and 2nd 
+    # optimality conditions
 
     if args.hessian_directions:
         max_ev, max_evec, min_ev, min_evec = compute_dominant_hessian_directions(

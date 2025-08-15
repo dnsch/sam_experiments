@@ -10,11 +10,13 @@ from scipy.sparse.linalg import LinearOperator, eigsh
 import h5py
 import sys
 
-from pyhessian import hessian
+
+
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.append(str(SCRIPT_DIR.parents[2]))
 from extra.loss_landscape.net_plotter import name_direction_file
+from extra.pyhessian.pyhessian import hessian
 import pdb
 
 
