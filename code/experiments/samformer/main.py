@@ -3,11 +3,11 @@ import sys
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-#TODO: change paths here, don't need all of em
+# TODO: change paths here, don't need all of em
 sys.path.append(str(SCRIPT_DIR.parents[1]))
 sys.path.append(str(SCRIPT_DIR.parents[2]))
-sys.path.append(str(SCRIPT_DIR.parents[2] / "extra" / "pyhessian"))
-sys.path.append(str(SCRIPT_DIR.parents[2] / "extra" / "loss_landscape"))
+sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "pyhessian"))
+sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "loss_landscape"))
 
 from src.models.samformer import SAMFormerArchitecture
 from src.engines.samformer_engine import SAMFormer_Engine
@@ -22,7 +22,7 @@ from src.utils.functions import (
     save_eigenvectors_to_hdf5,
 )
 
-from src.utils.functions import compute_top_eigenvalue_and_eigenvector 
+from src.utils.functions import compute_top_eigenvalue_and_eigenvector
 
 import numpy as np
 import torch
@@ -33,7 +33,9 @@ import copy
 import matplotlib.pyplot as plt
 
 torch.set_num_threads(3)
-from extra.pyhessian.density_plot import get_esd_plot
+from lib.utils.pyhessian.density_plot import get_esd_plot
+from lib.optimizers.gsam.gsam.gsam import GSAM
+from lib.optimizers.gsam.gsam.scheduler import LinearScheduler
 
 
 def set_seed(seed):
@@ -67,6 +69,14 @@ def get_config():
     parser.add_argument(
         "--no_sam", action="store_true", help="don't use Sharpness Awarae Minimization"
     )
+    parser.add_argument("--gsam", action="store_true", help="use gsam")
+    parser.add_argument("--gsam_alpha", type=float, default=0.5)
+    parser.add_argument("--gsam_rho_max", type=float, default=0.5)
+    parser.add_argument("--gsam_rho_min", type=float, default=0.1)
+    parser.add_argument(
+        "--gsam_adaptive", action="store_true", help="use adaptive gsam"
+    )
+
     args = parser.parse_args()
 
     if args.model_name == "":
@@ -110,8 +120,16 @@ def load_optimizer(model, args, logger):
         optimizer_class = getattr(torch.optim, args.optimizer)
 
         if not args.no_sam:
-            logger.info(f"Optimizer class: {optimizer_class}")
-            return optimizer_class
+            if args.gsam:
+                logger.info(f"Optimizer class: {optimizer_class}")
+                optimizer = optimizer_class(
+                    model.parameters(), lr=args.lrate, weight_decay=args.wdecay
+                )
+                logger.info(optimizer)
+                return optimizer
+            else:
+                logger.info(f"Optimizer class: {optimizer_class}")
+                return optimizer_class
 
         optimizer = optimizer_class(
             model.parameters(), lr=args.lrate, weight_decay=args.wdecay
@@ -146,14 +164,36 @@ def main():
     )
 
     optimizer = load_optimizer(model, args, logger)
+    lr_scheduler = None
     if not args.no_sam:
-        optimizer = SAM(
-            model.parameters(),
-            base_optimizer=optimizer,
-            rho=args.rho,
-            lr=args.lrate,
-            weight_decay=args.wdecay,
-        )
+        if args.gsam:
+            lr_scheduler = LinearScheduler(
+                T_max=args.max_epochs * len(dataloader["train_loader"]),
+                max_value=args.lrate,
+                min_value=args.lrate * 0.01,
+                optimizer=optimizer,
+            )
+            rho_scheduler = LinearScheduler(
+                T_max=args.max_epochs * len(dataloader["train_loader"]),
+                max_value=args.gsam_rho_max,
+                min_value=args.gsam_rho_min,
+            )
+            optimizer = GSAM(
+                params=model.parameters(),
+                base_optimizer=optimizer,
+                model=model,
+                gsam_alpha=args.gsam_alpha,
+                rho_scheduler=rho_scheduler,
+                adaptive=args.gsam_adaptive,
+            )
+        else:
+            optimizer = SAM(
+                params=model.parameters(),
+                base_optimizer=optimizer,
+                rho=args.rho,
+                lr=args.lrate,
+                weight_decay=args.wdecay,
+            )
 
     loss_fn = torch.nn.MSELoss()
 
@@ -166,7 +206,7 @@ def main():
         loss_fn=loss_fn,
         lrate=args.lrate,
         optimizer=optimizer,
-        scheduler=None,
+        scheduler=lr_scheduler,
         clip_grad_value=0,
         # clip_grad_value=4,
         max_epochs=args.max_epochs,
@@ -179,6 +219,7 @@ def main():
         pred_len=args.horizon,
         no_sam=args.no_sam,
         use_revin=args.use_revin,
+        gsam=args.gsam,
     )
 
     if args.mode == "train":
@@ -186,20 +227,24 @@ def main():
     elif args.mode == "test":
         engine.evaluate(args.mode)
 
-
-    top_eigenvalue, top_eigenvector = compute_top_eigenvalue_and_eigenvector(model, loss_fn, dataloader["train_loader"])
+    top_eigenvalue, top_eigenvector = compute_top_eigenvalue_and_eigenvector(
+        model, loss_fn, dataloader["train_loader"]
+    )
     print(f"Max Eigenvalue: {top_eigenvalue}")
 
-    from extra.pyhessian.pyhessian import hessian
-    hessian_comp = hessian(model, loss_fn, dataloader=dataloader["train_loader"], cuda=args.device)
+    from lib.utils.pyhessian.pyhessian import hessian
+
+    hessian_comp = hessian(
+        model, loss_fn, dataloader=dataloader["train_loader"], cuda=args.device
+    )
     density_eigen, density_weight = hessian_comp.density()
 
     # print('\n***Top Eigenvalues: ', top_eigenvalues)
     # print('\n***Trace: ', np.mean(trace))
 
     get_esd_plot(density_eigen, density_weight)
-    #TODO: check how many eigenvalues are negative, i.e. negative curvature
-    # -> not converged to perfect local minimum that satisfies 1st and 2nd 
+    # TODO: check how many eigenvalues are negative, i.e. negative curvature
+    # -> not converged to perfect local minimum that satisfies 1st and 2nd
     # optimality conditions
 
     if args.hessian_directions:

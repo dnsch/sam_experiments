@@ -25,6 +25,7 @@ class SAMFormer_Engine(BaseEngine):
         pred_len=1,
         no_sam=True,
         use_revin=True,
+        gsam=False,
         **args,
     ):
         super(SAMFormer_Engine, self).__init__(**args)
@@ -33,6 +34,7 @@ class SAMFormer_Engine(BaseEngine):
         self.pred_len = pred_len
         self.no_sam = no_sam
         self.use_revin = use_revin
+        self.gsam = gsam
         self.random_state = self._seed
         self._timeout = True
         self._epochs = 0
@@ -57,19 +59,27 @@ class SAMFormer_Engine(BaseEngine):
             loss = self._loss_fn(out_batch, y_batch)
             mape = self._mape(out_batch, y_batch).item()
             rmse = self._rmse(out_batch, y_batch).item()
+            cur_lr = 0
             if not self.no_sam:
                 loss.backward()
-                self._optimizer.first_step(zero_grad=True)
+                if self.gsam:
+                    self._optimizer.set_closure(self._loss_fn, x_batch, y_batch)
+                    out_batch, loss = self._optimizer.step()
+                    cur_lr = self._lr_scheduler._last_lr[0]
+                    self._lr_scheduler.step()
+                    self._optimizer.update_rho_t()
+                else:
+                    self._optimizer.first_step(zero_grad=True)
 
-                out_batch = self.model(x_batch, True)
-                loss = self._loss_fn(out_batch, y_batch)
+                    out_batch = self.model(x_batch, True)
+                    loss = self._loss_fn(out_batch, y_batch)
 
-                loss.backward()
-                if self._clip_grad_value != 0:
-                    torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(), self._clip_grad_value
-                    )
-                self._optimizer.second_step(zero_grad=True)
+                    loss.backward()
+                    if self._clip_grad_value != 0:
+                        torch.nn.utils.clip_grad_norm_(
+                            self.model.parameters(), self._clip_grad_value
+                        )
+                    self._optimizer.second_step(zero_grad=True)
             else:
                 self._optimizer.zero_grad()
                 loss.backward()
@@ -83,7 +93,10 @@ class SAMFormer_Engine(BaseEngine):
             train_mape.append(mape)
             train_rmse.append(rmse)
 
-        return np.mean(train_loss), np.mean(train_mape), np.mean(train_rmse)
+        if self.gsam:
+            return np.mean(train_loss), np.mean(train_mape), np.mean(train_rmse), cur_lr
+        else:
+            return np.mean(train_loss), np.mean(train_mape), np.mean(train_rmse)
 
     def train(self):
         self._logger.info("Start training!")
@@ -99,18 +112,24 @@ class SAMFormer_Engine(BaseEngine):
         b1 = time.time()
         for epoch in range(self._max_epochs):
             t1 = time.time()
-            mtrain_loss, mtrain_mape, mtrain_rmse = self.train_batch()
+            if self.gsam:
+                mtrain_loss, mtrain_mape, mtrain_rmse, cur_lr = self.train_batch()
+            else:
+                mtrain_loss, mtrain_mape, mtrain_rmse = self.train_batch()
             t2 = time.time()
 
             v1 = time.time()
             mvalid_loss, mvalid_mape, mvalid_rmse = self.evaluate("val")
             v2 = time.time()
 
-            if self._lr_scheduler is None:
-                cur_lr = self._lrate
+            if self.gsam:
+                cur_lr = cur_lr
             else:
-                cur_lr = self._lr_scheduler.get_last_lr()[0]
-                self._lr_scheduler.step()
+                if self._lr_scheduler is None:
+                    cur_lr = self._lrate
+                else:
+                    cur_lr = self._lr_scheduler.get_last_lr()[0]
+                    self._lr_scheduler.step()
 
             message = "Epoch: {:03d}, Train Loss: {:.4f}, Train RMSE: {:.4f}, Train MAPE: {:.4f}, Valid Loss: {:.4f}, Valid RMSE: {:.4f}, Valid MAPE: {:.4f}, Train Time: {:.4f}s/epoch, Valid Time: {:.4f}s, LR: {:.4e}"
             self._logger.info(

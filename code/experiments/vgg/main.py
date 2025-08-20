@@ -15,7 +15,7 @@ from src.utils.dataloader import (
 )
 from src.utils.logging import get_logger
 
-from extra.sam.sam import SAM
+from lib.optimizers.sam.sam import SAM
 
 import numpy as np
 import torch
