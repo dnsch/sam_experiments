@@ -10,3 +10,6 @@
 [submodule "lib/optimizers/sam"]
     path = lib/optimizers/sam
     url = https://github.com/dnsch/sam.git
+[submodule "lib/optimizers/gsam"]
+	path = lib/optimizers/gsam
+	url = https://github.com/dnsch/GSAM.git
