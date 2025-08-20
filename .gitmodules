@@ -1,12 +1,12 @@
-[submodule "extra/sam"]
-	path = extra/sam
-	url = https://github.com/dnsch/sam.git 
-[submodule "extra/loss_landscape"]
-	path = extra/loss_landscape
-	url = https://github.com/dnsch/loss_landscape.git
-[submodule "extra/tsmixer"]
-	path = extra/tsmixer
-	url = https://github.com/dnsch/pytorch-tsmixer.git
-[submodule "extra/pyhessian"]
-	path = extra/pyhessian
-	url = https://github.com/dnsch/PyHessian.git
+[submodule "lib/utils/pyhessian"]
+    path = lib/utils/pyhessian
+    url = https://github.com/dnsch/PyHessian.git
+[submodule "lib/utils/loss_landscape"]
+    path = lib/utils/loss_landscape
+    url = https://github.com/dnsch/loss_landscape.git
+[submodule "lib/models/tsmixer"]
+    path = lib/models/tsmixer
+    url = https://github.com/dnsch/pytorch-tsmixer.git
+[submodule "lib/optimizers/sam"]
+    path = lib/optimizers/sam
+    url = https://github.com/dnsch/sam.git
