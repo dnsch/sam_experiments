@@ -1,5 +1,4 @@
 import sys
-
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -9,7 +8,7 @@ sys.path.append(str(SCRIPT_DIR.parents[2]))
 sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "pyhessian"))
 sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "loss_landscape"))
 
-from src.models.samformer import SAMFormerArchitecture
+from src.models.time_series.samformer import SAMFormerArchitecture
 from src.engines.samformer_engine import SAMFormer_Engine
 from src.utils.args import get_public_config
 from src.utils.dataloader import (
@@ -151,6 +150,7 @@ def main():
         dataset_name, args, logger, time_increment
     )
     dataloader = dataloader_instance.get_dataloader()
+    pdb.set_trace()
 
     model = SAMFormerArchitecture(
         node_num=None,
