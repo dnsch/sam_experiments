@@ -11,8 +11,8 @@ sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "pyhessian"))
 sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "loss_landscape"))
 
 from src.utils.args import get_public_config
-from src.engines.arima2_engine import ARIMAEngine
-from src.utils.dataloader import ARIMADataloader
+from src.engines.arima_engine import ARIMAEngine
+from src.utils.dataloader import DartsDataloader
 from src.utils.logging import get_logger
 
 import numpy as np
@@ -111,8 +111,9 @@ def main():
 
     dataset_name = args.dataset
     time_increment = 1
-    dataloader_instance = ARIMADataloader(dataset_name, args, logger, time_increment)
+    dataloader_instance = DartsDataloader(dataset_name, args, logger, time_increment)
     data = dataloader_instance.get_dataloader()
+    pdb.set_trace()
     # dataloader_sliding_window = dataloader.get_sliding_window_dataloader()
     import statsmodels.api as sm
     import matplotlib.pyplot as plt
