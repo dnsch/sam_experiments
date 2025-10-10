@@ -1,3 +1,4 @@
+from bdb import set_trace
 import time
 import numpy as np
 import pandas as pd
@@ -14,6 +15,9 @@ from darts.utils.timeseries_generation import holidays_timeseries
 from darts.metrics import mse, rmse, mae, mape
 from darts import TimeSeries
 import pdb
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 
 # As the ARIMA model is not implemented in pytorch, it doesn't make sense that
@@ -33,7 +37,7 @@ class ARIMAEngine:
         seed,
         **kwargs,
     ):
-        self.model = model.to(self._device)
+        # self.model = model.to(self._device)
         self.args = args
         self.logger = logger
         self.log_dir = log_dir
@@ -181,6 +185,145 @@ class ARIMAEngine:
     #     )
     #
     #     return combined_predictions
+
+    import numpy as np
+    from typing import Tuple, List, Dict
+    from darts.models import AutoARIMA, ARIMA
+
+    def evaluate_arima_multivariate(
+        self,
+        darts_dl,  # instance of DartsDataloader (with rolling_eval_iterator)
+        step: int,  # e.g., args.seq_len for non-overlapping windows
+        metric: str = "MAE",  # "MAE", "RMSE", "MAPE"
+        merge_val_into_train: bool = True,  # train on train+val initially
+        expand_train: bool = True,  # expanding training as the window slides
+        seasonal: bool = False,  # set True if your data is seasonal
+        m: int = 1,  # seasonal period (e.g., 24 for hourly daily)
+        use_cached_orders: bool = True,  # cache orders from initial fit to speed up subsequent fits
+    ) -> Tuple[float, List[float], List[Dict]]:
+        """
+        Returns:
+        overall_avg_loss: average across all components and all windows
+        window_losses: per-window average loss across components
+        details: per-window dicts with component-wise losses (optional for debugging)
+        """
+
+        # Choose metric function
+        def _loss(y_pred: np.ndarray, y_true: np.ndarray) -> float:
+            if metric.upper() == "MAE":
+                return float(np.mean(np.abs(y_pred - y_true)))
+            elif metric.upper() == "RMSE":
+                return float(np.sqrt(np.mean((y_pred - y_true) ** 2)))
+            elif metric.upper() == "MAPE":
+                denom = np.clip(np.abs(y_true), 1e-8, None)
+                return float(np.mean(np.abs((y_pred - y_true) / denom)))
+            else:
+                raise ValueError(f"Unknown metric '{metric}'")
+
+        # Cache orders on the initial training cut if requested
+        orders_cache = None
+        if use_cached_orders:
+            pdb.set_trace()
+            init_train_end = (
+                darts_dl.val_end if merge_val_into_train else darts_dl.train_end
+            )
+            init_train_series = (
+                darts_dl.train_series.append(darts_dl.val_series)
+                if merge_val_into_train
+                else darts_dl.train_series
+            )
+            orders_cache = {}
+            for name in darts_dl.feature_names:
+                ts_comp = init_train_series.univariate_component(name)
+                auto = AutoARIMA(seasonal=seasonal, m=m)
+                auto.fit(ts_comp)
+                pm = auto.model  # underlying pmdarima model
+                orders_cache[name] = {
+                    "order": pm.order,  # (p,d,q)
+                    "seasonal_order": pm.seasonal_order,  # (P,D,Q,m)
+                }
+
+        window_losses: List[float] = []
+        details: List[Dict] = []
+
+        for fold in darts_dl.rolling_eval_iterator(
+            step=step,
+            merge_val_into_train=merge_val_into_train,
+            expand_train=expand_train,
+        ):
+            ts_train = fold["train_series"]
+            y_true = fold["y"]  # shape (D, pred_len)
+            D = y_true.shape[0]
+
+            comp_losses = {}
+            comp_preds = []
+
+            for i, name in enumerate(darts_dl.feature_names):
+                ts_comp = ts_train.univariate_component(name)
+                pdb.set_trace()
+
+                if use_cached_orders:
+                    ords = orders_cache[name]
+                    model = ARIMA(
+                        order=ords["order"], seasonal_order=ords["seasonal_order"]
+                    )
+                else:
+                    model = AutoARIMA(seasonal=seasonal, season_length=m)
+
+                model.fit(ts_comp)
+                y_pred_ts = model.predict(n=darts_dl.pred_len)  # univariate TimeSeries
+                y_pred = y_pred_ts.values().ravel()  # (pred_len,)
+                pdb.set_trace()
+                plt.figure(figsize=(12, 6))
+
+                # Plot actual values
+                plt.plot(y_true[i], label=f"Actual {name}", color="blue", linewidth=2)
+
+                # Plot predictions
+                plt.plot(
+                    y_pred,
+                    label=f"Predicted {name}",
+                    color="red",
+                    linestyle="--",
+                    linewidth=2,
+                )
+
+                plt.title(f"ARIMA Predictions vs Actual - {name} (Window {fold['k']})")
+                plt.xlabel("Time Step")
+                plt.ylabel("Value")
+                plt.legend()
+                plt.grid(True, alpha=0.3)
+
+                # Save the plot
+                plt.savefig(
+                    f"arima_prediction_{name}_window_{fold['k']}.png",
+                    dpi=150,
+                    bbox_inches="tight",
+                )
+                plt.show()  # Remove this if you don't want to display interactively
+
+                comp_preds.append(y_pred)
+                pdb.set_trace()
+
+                comp_losses[name] = _loss(y_pred, y_true[i])
+                print(i)
+
+            comp_preds = np.stack(comp_preds, axis=0)  # (D, pred_len)
+            avg_loss = float(np.mean(list(comp_losses.values())))
+            window_losses.append(avg_loss)
+            details.append(
+                {
+                    "k": fold["k"],
+                    "in_start": fold["in_start"],
+                    "in_end": fold["in_end"],
+                    "out_end": fold["out_end"],
+                    "component_losses": comp_losses,
+                    "avg_loss": avg_loss,
+                }
+            )
+
+        overall_avg_loss = float(np.mean(window_losses)) if window_losses else np.nan
+        return overall_avg_loss, window_losses, details
 
     def evaluate(self, test_set="test"):
         """Evaluate ARIMA model"""

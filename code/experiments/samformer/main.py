@@ -150,6 +150,7 @@ def main():
         dataset_name, args, logger, time_increment
     )
     dataloader = dataloader_instance.get_dataloader()
+    pdb.set_trace()
 
     model = SAMFormerArchitecture(
         node_num=None,

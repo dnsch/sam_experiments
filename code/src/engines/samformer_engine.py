@@ -43,6 +43,77 @@ class SAMFormer_Engine(BaseEngine):
         self._mape = self._to_device(MeanAbsolutePercentageError())
         self._rmse = self._to_device(MeanSquaredError(squared=False))
 
+    import numpy as np
+    import torch
+
+    def evaluate_samformer_on_windows(
+        model,  # your trained Samformer model (in eval mode)
+        sam_dl,  # instance of SamformerDataloader
+        step: int,  # match ARIMA step (e.g., args.seq_len)
+        metric: str = "MAE",
+        device: str = "cuda",  # or "cpu"
+    ) -> Tuple[float, List[float]]:
+        """
+        Assumes model returns predictions shaped like (batch, D*pred_len) or (batch, D, pred_len).
+        Converts predictions back to raw units using sam_dl.scaler, then averages across components.
+        """
+
+        def _loss(y_pred: np.ndarray, y_true: np.ndarray) -> float:
+            if metric.upper() == "MAE":
+                return float(np.mean(np.abs(y_pred - y_true)))
+            elif metric.upper() == "RMSE":
+                return float(np.sqrt(np.mean((y_pred - y_true) ** 2)))
+            elif metric.upper() == "MAPE":
+                denom = np.clip(np.abs(y_true), 1e-8, None)
+                return float(np.mean(np.abs((y_pred - y_true) / denom)))
+            else:
+                raise ValueError(f"Unknown metric '{metric}'")
+
+        # Build non-overlapping sliding windows over scaled test segment
+        test_loader = sam_dl.get_test_sliding_loader(
+            stride=step, batch_size=1, flatten_y=False
+        )
+
+        model.eval()
+        window_losses = []
+
+        with torch.no_grad():
+            for xb, yb_scaled in test_loader:
+                # xb: (1, D, seq_len), yb_scaled: (1, D, pred_len) in scaled units
+                xb = xb.to(device)
+                # Forward pass
+                yhat_scaled = model(
+                    xb
+                )  # ensure shape matches (1, D*pred_len) or (1, D, pred_len)
+
+                # Reshape to (D, pred_len) in scaled units
+                if yhat_scaled.dim() == 2:  # (1, D*pred_len)
+                    D = yb_scaled.shape[1]
+                    pred_len = yb_scaled.shape[2]
+                    yhat_scaled = yhat_scaled.view(1, D, pred_len)
+                yhat_scaled = yhat_scaled.squeeze(0).cpu().numpy()  # (D, pred_len)
+                yb_scaled = yb_scaled.squeeze(0).cpu().numpy()  # (D, pred_len)
+
+                # Inverse-transform both predictions and targets to raw units
+                # StandardScaler expects shape (n_samples, D); we apply per time step
+                D, pred_len = yhat_scaled.shape
+                yhat_raw = np.zeros_like(yhat_scaled)
+                y_true_raw = np.zeros_like(yb_scaled)
+                for t in range(pred_len):
+                    yhat_raw[:, t] = sam_dl.scaler.inverse_transform(
+                        yhat_scaled[:, t].reshape(1, -1)
+                    ).ravel()
+                    y_true_raw[:, t] = sam_dl.scaler.inverse_transform(
+                        yb_scaled[:, t].reshape(1, -1)
+                    ).ravel()
+
+                # Average loss across components
+                loss = _loss(yhat_raw, y_true_raw)
+                window_losses.append(loss)
+
+        overall_avg_loss = float(np.mean(window_losses)) if window_losses else np.nan
+        return overall_avg_loss, window_losses
+
     def train_batch(self):
         self.model.train()
         train_loss = []

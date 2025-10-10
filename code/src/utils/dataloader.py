@@ -13,6 +13,9 @@ import torchvision.transforms as transforms
 from darts import TimeSeries
 
 from pathlib import Path
+
+
+from typing import Optional, Iterator, Tuple
 import pdb
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -73,8 +76,10 @@ class SamformerDataloader:
         n = len(df_raw)
         seq_len = args.seq_len
         pred_len = args.horizon
+        self.seq_len = seq_len
+        self.pred_len = pred_len
+        self.args = args
 
-        # train-validation-test split for ETT* datasets
         if dataset.startswith("ETTm"):
             train_end = 12 * 30 * 24 * 4
             val_end = train_end + 4 * 30 * 24 * 4
@@ -84,31 +89,35 @@ class SamformerDataloader:
             val_end = train_end + 4 * 30 * 24
             test_end = val_end + 4 * 30 * 24
         else:
-            # train_end = round(train_ratio * n)
-            # val_end = round(val_ratio * n)
-            # test_end = n
             train_end = int(n * train_ratio)
             val_end = n - int(n * val_ratio)
             test_end = n
+
+        # Keep split indices for aligned windows
+        self.train_end = train_end
+        self.val_end = val_end
+        self.test_end = test_end
+
         train_df = df_raw[:train_end]
         val_df = df_raw[train_end - seq_len : val_end]
         test_df = df_raw[val_end - seq_len : test_end]
+
         # standardize by training set
         self.scaler = StandardScaler()
         self.scaler.fit(train_df.values)
-        train_df, val_df, test_df = [
-            self.scaler.transform(df.values) for df in [train_df, val_df, test_df]
-        ]
+        self.train_arr = self.scaler.transform(train_df.values)
+        self.val_arr = self.scaler.transform(val_df.values)
+        self.test_arr = self.scaler.transform(test_df.values)
 
         # apply sliding window
         x_train, y_train = construct_sliding_window_data(
-            train_df, seq_len, pred_len, time_increment
+            self.train_arr, seq_len, pred_len, time_increment
         )
         x_val, y_val = construct_sliding_window_data(
-            val_df, seq_len, pred_len, time_increment
+            self.val_arr, seq_len, pred_len, time_increment
         )
         x_test, y_test = construct_sliding_window_data(
-            test_df, seq_len, pred_len, time_increment
+            self.test_arr, seq_len, pred_len, time_increment
         )
 
         # flatten target matrices
@@ -117,7 +126,7 @@ class SamformerDataloader:
         train_dataset = LabeledDataset(x_train, y_train)
         val_dataset = LabeledDataset(x_val, y_val)
         test_dataset = LabeledDataset(x_test, y_test)
-        pdb.set_trace()
+
         train_loader = torch.utils.data.DataLoader(
             train_dataset, batch_size=args.batch_size, shuffle=True
         )
@@ -139,6 +148,126 @@ class SamformerDataloader:
 
     def get_scaler(self):
         return self.scaler
+
+    def get_test_sliding_loader(
+        self,
+        stride: Optional[int] = None,
+        batch_size: int = 1,
+        flatten_y: bool = False,
+    ) -> torch.utils.data.DataLoader:
+        """
+        Build sliding-window loader over the (scaled) test segment with configurable stride.
+        Align stride with Darts rolling windows; default stride = seq_len for non-overlapping.
+        """
+        stride = stride if stride is not None else self.seq_len
+        # Rebuild x/y with the chosen stride from scaled test segment
+        x_test_sw, y_test_sw = construct_sliding_window_data(
+            self.test_arr, self.seq_len, self.pred_len, stride
+        )
+        if flatten_y:
+            y_test_sw = y_test_sw.reshape((y_test_sw.shape[0], -1))
+        ds = LabeledDataset(x_test_sw, y_test_sw)
+        return torch.utils.data.DataLoader(ds, batch_size=batch_size, shuffle=False)
+
+    def rolling_test_windows(
+        self,
+        step: Optional[int] = None,
+    ) -> Iterator[Tuple[torch.Tensor, torch.Tensor]]:
+        """
+        Optional generator yielding (x, y) test windows (scaled) with given step.
+        """
+        step = step if step is not None else self.seq_len
+        x, y = construct_sliding_window_data(
+            self.test_arr, self.seq_len, self.pred_len, step
+        )
+        for i in range(x.shape[0]):
+            yield torch.FloatTensor(x[i]), torch.FloatTensor(y[i])
+
+
+# class SamformerDataloader:
+#     def __init__(
+#         self,
+#         dataset,
+#         args,
+#         logger,
+#         time_increment=1,
+#         train_ratio=0.7,
+#         val_ratio=0.2,
+#     ):
+#         file_path = (
+#             SCRIPT_DIR.parents[2] / "data" / "samformer_datasets" / f"{dataset}.csv"
+#         )
+#         df_raw = pd.read_csv(file_path, index_col=0)
+#
+#         n = len(df_raw)
+#         seq_len = args.seq_len
+#         pred_len = args.horizon
+#
+#         # train-validation-test split for ETT* datasets
+#         if dataset.startswith("ETTm"):
+#             train_end = 12 * 30 * 24 * 4
+#             val_end = train_end + 4 * 30 * 24 * 4
+#             test_end = val_end + 4 * 30 * 24 * 4
+#         elif dataset.startswith("ETTh"):
+#             train_end = 12 * 30 * 24
+#             val_end = train_end + 4 * 30 * 24
+#             test_end = val_end + 4 * 30 * 24
+#         else:
+#             # train_end = round(train_ratio * n)
+#             # val_end = round(val_ratio * n)
+#             # test_end = n
+#             train_end = int(n * train_ratio)
+#             val_end = n - int(n * val_ratio)
+#             test_end = n
+#         train_df = df_raw[:train_end]
+#         val_df = df_raw[train_end - seq_len : val_end]
+#         test_df = df_raw[val_end - seq_len : test_end]
+#         # standardize by training set
+#         self.scaler = StandardScaler()
+#         self.scaler.fit(train_df.values)
+#         train_df, val_df, test_df = [
+#             self.scaler.transform(df.values) for df in [train_df, val_df, test_df]
+#         ]
+#
+#         # apply sliding window
+#         x_train, y_train = construct_sliding_window_data(
+#             train_df, seq_len, pred_len, time_increment
+#         )
+#         x_val, y_val = construct_sliding_window_data(
+#             val_df, seq_len, pred_len, time_increment
+#         )
+#         x_test, y_test = construct_sliding_window_data(
+#             test_df, seq_len, pred_len, time_increment
+#         )
+#
+#         # flatten target matrices
+#         flatten = lambda y: y.reshape((y.shape[0], y.shape[1] * y.shape[2]))
+#         y_train, y_val, y_test = flatten(y_train), flatten(y_val), flatten(y_test)
+#         train_dataset = LabeledDataset(x_train, y_train)
+#         val_dataset = LabeledDataset(x_val, y_val)
+#         test_dataset = LabeledDataset(x_test, y_test)
+#         pdb.set_trace()
+#         train_loader = torch.utils.data.DataLoader(
+#             train_dataset, batch_size=args.batch_size, shuffle=True
+#         )
+#         val_loader = torch.utils.data.DataLoader(
+#             val_dataset, batch_size=args.batch_size, shuffle=True
+#         )
+#         test_loader = torch.utils.data.DataLoader(
+#             test_dataset, batch_size=args.batch_size, shuffle=False
+#         )
+#
+#         self.dataloader = {
+#             "train_loader": train_loader,
+#             "val_loader": val_loader,
+#             "test_loader": test_loader,
+#         }
+#
+#     def get_dataloader(self):
+#         return self.dataloader
+#
+#     def get_scaler(self):
+#         return self.scaler
 
 
 class CIFAR10Dataloader:
@@ -243,6 +372,10 @@ class CIFAR10Dataloader:
         return self.scaler
 
 
+# Add these imports if not present
+from typing import Iterator, Dict, Optional, Tuple
+
+
 class DartsDataloader:
     def __init__(
         self,
@@ -265,6 +398,8 @@ class DartsDataloader:
         n = len(df_raw)
         seq_len = args.seq_len
         pred_len = args.horizon
+        self.seq_len = seq_len
+        self.pred_len = pred_len
 
         # train-validation-test split for ETT* datasets
         if dataset.startswith("ETTm"):
@@ -280,6 +415,12 @@ class DartsDataloader:
             val_end = n - int(n * val_ratio)
             test_end = n
 
+        # Store for rolling windows
+        self.df_raw = df_raw
+        self.train_end = train_end
+        self.val_end = val_end
+        self.test_end = test_end
+
         train_df = df_raw[:train_end]
         val_df = df_raw[train_end:val_end]
         test_df = df_raw[val_end:test_end]
@@ -288,11 +429,13 @@ class DartsDataloader:
             if df_raw.columns is not None
             else [f"feature_{i}" for i in range(df_raw.shape[1])]
         )
-        # sliding window data for direct comparison
+        self.feature_names = feature_names
+
+        # sliding window data for direct comparison on test
         val_df_sw = df_raw[train_end - seq_len : val_end]
         test_df_sw = df_raw[val_end - seq_len : test_end]
         x_test_sw, y_test_sw = construct_sliding_window_data(
-            test_df_sw, seq_len, pred_len, time_increment
+            test_df_sw.values, seq_len, pred_len, time_increment
         )
         test_dataset_sw = LabeledDataset(x_test_sw, y_test_sw)
         test_loader_sw = torch.utils.data.DataLoader(
@@ -303,12 +446,11 @@ class DartsDataloader:
             "test_loader": test_loader_sw,
         }
 
+        # TimeSeries objects (multivariate)
         self.train_series = TimeSeries.from_values(
             train_df.values, columns=feature_names
         )
-
         self.val_series = TimeSeries.from_values(val_df.values, columns=feature_names)
-
         self.test_series = TimeSeries.from_values(test_df.values, columns=feature_names)
 
         self.dataloader = {
@@ -316,21 +458,6 @@ class DartsDataloader:
             "val_loader": self.val_series,
             "test_loader": self.test_series,
         }
-        train_df = df_raw[:train_end]
-        val_df = df_raw[train_end:val_end]
-        test_df = df_raw[val_end:test_end]
-        feature_names = (
-            df_raw.columns.tolist()
-            if df_raw.columns is not None
-            else [f"feature_{i}" for i in range(df_raw.shape[1])]
-        )
-        # self.train_series = TimeSeries.from_values(
-        #     train_df.values, columns=feature_names
-        # )
-        #
-        # self.val_series = TimeSeries.from_values(val_df.values, columns=feature_names)
-        #
-        # self.test_series = TimeSeries.from_values(test_df.values, columns=feature_names)
 
         # Log infos
         self.logger.info(f"Dataset: {dataset}")
@@ -344,7 +471,7 @@ class DartsDataloader:
         return self.dataloader
 
     def get_sliding_window_dataloader(self):
-        """Return train, val, test TimeSeries objects"""
+        """Return sliding-window test loader (stride = constructor time_increment)"""
         return self.sw_dataloader
 
     def get_timeseries(self):
@@ -360,15 +487,217 @@ class DartsDataloader:
             series_list.append(self.val_series)
         if "test" in splits:
             series_list.append(self.test_series)
-
         if len(series_list) == 1:
             return series_list[0]
-
         combined = series_list[0]
         for series in series_list[1:]:
             combined = combined.append(series)
-
         return combined
+
+    def get_sliding_window_dataset(
+        self, split: str = "test", stride: Optional[int] = None
+    ) -> torch.utils.data.DataLoader:
+        """
+        Build sliding-window LabeledDataset/DataLoader (unscaled) for a given split.
+        x: (n_windows, D, seq_len), y: (n_windows, D, pred_len)
+        """
+        assert split in {"train", "val", "test"}
+        stride = stride if stride is not None else 1
+        s, e = None, None
+        if split == "train":
+            s, e = 0, self.train_end
+        elif split == "val":
+            s, e = self.train_end - self.seq_len, self.val_end
+        else:
+            s, e = self.val_end - self.seq_len, self.test_end
+
+        seg = self.df_raw.iloc[s:e].values
+        x, y = construct_sliding_window_data(seg, self.seq_len, self.pred_len, stride)
+        ds = LabeledDataset(x, y)  # unflattened y for convenience
+        return torch.utils.data.DataLoader(ds, batch_size=1, shuffle=False)
+
+    def rolling_eval_iterator(
+        self,
+        step: Optional[int] = None,
+        merge_val_into_train: bool = True,
+        expand_train: bool = True,
+    ) -> Iterator[Dict[str, object]]:
+        """
+        Yields rolling/evolving splits for ARIMA:
+          - train_series_k: TimeSeries from start to current cutoff
+          - x_window: np.ndarray (D, seq_len)
+          - y_window: np.ndarray (D, pred_len)
+
+        Windows start at (val_end - seq_len) and move forward by 'step'.
+        At step k, training end is:
+          - val_end at k=0 if merge_val_into_train else train_end
+          - in_start (expanding) for k>0 if expand_train
+        """
+        step = step if step is not None else self.seq_len
+
+        # Define first input window start
+        in_start0 = self.val_end - self.seq_len
+        k = 0
+        while True:
+            in_start = in_start0 + k * step
+            in_end = in_start + self.seq_len
+            out_end = in_end + self.pred_len
+            if out_end > self.test_end:
+                break
+
+            if k == 0:
+                train_end_k = self.val_end if merge_val_into_train else self.train_end
+            else:
+                train_end_k = (
+                    in_start
+                    if expand_train
+                    else (self.val_end if merge_val_into_train else self.train_end)
+                )
+
+            train_series_k = TimeSeries.from_values(
+                self.df_raw.iloc[:train_end_k].values, columns=self.feature_names
+            )
+            x_window = self.df_raw.iloc[in_start:in_end].values.T  # (D, seq_len)
+            y_window = self.df_raw.iloc[in_end:out_end].values.T  # (D, pred_len)
+
+            yield {
+                "k": k,
+                "train_series": train_series_k,
+                "x": x_window,
+                "y": y_window,
+                "in_start": in_start,
+                "in_end": in_end,
+                "out_end": out_end,
+            }
+            k += 1
+
+
+# class DartsDataloader:
+#     def __init__(
+#         self,
+#         dataset,
+#         args,
+#         logger,
+#         time_increment=1,
+#         train_ratio=0.7,
+#         val_ratio=0.2,
+#     ):
+#         self.dataset = dataset
+#         self.args = args
+#         self.logger = logger
+#
+#         file_path = (
+#             SCRIPT_DIR.parents[2] / "data" / "samformer_datasets" / f"{dataset}.csv"
+#         )
+#         df_raw = pd.read_csv(file_path, index_col=0)
+#
+#         n = len(df_raw)
+#         seq_len = args.seq_len
+#         pred_len = args.horizon
+#
+#         # train-validation-test split for ETT* datasets
+#         if dataset.startswith("ETTm"):
+#             train_end = 12 * 30 * 24 * 4
+#             val_end = train_end + 4 * 30 * 24 * 4
+#             test_end = val_end + 4 * 30 * 24 * 4
+#         elif dataset.startswith("ETTh"):
+#             train_end = 12 * 30 * 24
+#             val_end = train_end + 4 * 30 * 24
+#             test_end = val_end + 4 * 30 * 24
+#         else:
+#             train_end = int(n * train_ratio)
+#             val_end = n - int(n * val_ratio)
+#             test_end = n
+#
+#         train_df = df_raw[:train_end]
+#         val_df = df_raw[train_end:val_end]
+#         test_df = df_raw[val_end:test_end]
+#         feature_names = (
+#             df_raw.columns.tolist()
+#             if df_raw.columns is not None
+#             else [f"feature_{i}" for i in range(df_raw.shape[1])]
+#         )
+#         # sliding window data for direct comparison
+#         val_df_sw = df_raw[train_end - seq_len : val_end]
+#         test_df_sw = df_raw[val_end - seq_len : test_end]
+#         x_test_sw, y_test_sw = construct_sliding_window_data(
+#             test_df_sw, seq_len, pred_len, time_increment
+#         )
+#         test_dataset_sw = LabeledDataset(x_test_sw, y_test_sw)
+#         test_loader_sw = torch.utils.data.DataLoader(
+#             test_dataset_sw, batch_size=1, shuffle=False
+#         )
+#         self.sw_dataloader = {
+#             "feature_names": feature_names,
+#             "test_loader": test_loader_sw,
+#         }
+#
+#         self.train_series = TimeSeries.from_values(
+#             train_df.values, columns=feature_names
+#         )
+#
+#         self.val_series = TimeSeries.from_values(val_df.values, columns=feature_names)
+#
+#         self.test_series = TimeSeries.from_values(test_df.values, columns=feature_names)
+#
+#         self.dataloader = {
+#             "train_loader": self.train_series,
+#             "val_loader": self.val_series,
+#             "test_loader": self.test_series,
+#         }
+#         train_df = df_raw[:train_end]
+#         val_df = df_raw[train_end:val_end]
+#         test_df = df_raw[val_end:test_end]
+#         feature_names = (
+#             df_raw.columns.tolist()
+#             if df_raw.columns is not None
+#             else [f"feature_{i}" for i in range(df_raw.shape[1])]
+#         )
+#         # self.train_series = TimeSeries.from_values(
+#         #     train_df.values, columns=feature_names
+#         # )
+#         #
+#         # self.val_series = TimeSeries.from_values(val_df.values, columns=feature_names)
+#         #
+#         # self.test_series = TimeSeries.from_values(test_df.values, columns=feature_names)
+#
+#         # Log infos
+#         self.logger.info(f"Dataset: {dataset}")
+#         self.logger.info(f"Total length: {n}")
+#         self.logger.info(f"Train: {len(self.train_series)} ({train_end})")
+#         self.logger.info(f"Val: {len(self.val_series)} ({val_end - train_end})")
+#         self.logger.info(f"Test: {len(self.test_series)} ({test_end - val_end})")
+#         self.logger.info(f"Features: {len(feature_names)} - {feature_names}")
+#
+#     def get_dataloader(self):
+#         return self.dataloader
+#
+#     def get_sliding_window_dataloader(self):
+#         """Return train, val, test TimeSeries objects"""
+#         return self.sw_dataloader
+#
+#     def get_timeseries(self):
+#         """Return train, val, test TimeSeries objects"""
+#         return self.train_series, self.val_series, self.test_series
+#
+#     def get_combined_series(self, splits=["train", "val", "test"]):
+#         """Get combined TimeSeries for different combinations of splits"""
+#         series_list = []
+#         if "train" in splits:
+#             series_list.append(self.train_series)
+#         if "val" in splits:
+#             series_list.append(self.val_series)
+#         if "test" in splits:
+#             series_list.append(self.test_series)
+#
+#         if len(series_list) == 1:
+#             return series_list[0]
+#
+#         combined = series_list[0]
+#         for series in series_list[1:]:
+#             combined = combined.append(series)
+#
+#         return combined
 
 
 if __name__ == "__main__":

@@ -19,6 +19,7 @@ import numpy as np
 import torch
 import pandas as pd
 import time
+from darts.models import AutoARIMA
 
 # from darts import TimeSeries
 # from darts.models import ARIMA, AutoARIMA
@@ -113,6 +114,31 @@ def main():
     time_increment = 1
     dataloader_instance = DartsDataloader(dataset_name, args, logger, time_increment)
     data = dataloader_instance.get_dataloader()
+
+    darts_dl = DartsDataloader(dataset_name, args, logger, time_increment=1)
+    # model = ARIMA(p=1, d=1, q=1, seasonal_order=(1, 1, 1, 12))
+    model = AutoARIMA(season_length=12)
+
+    engine = ARIMAEngine(
+        model=model,
+        dataloader=darts_dl,
+        args=args,
+        logger=logger,
+        log_dir=log_dir,
+        seed=args.seed,
+    )
+
+    # ARIMA per component
+    arima_overall, arima_windows, arima_details = engine.evaluate_arima_multivariate(
+        darts_dl=darts_dl,
+        step=args.seq_len,
+        metric="MAE",
+        merge_val_into_train=True,
+        expand_train=True,
+        seasonal=True,  # set according to your data
+        m=24,  # e.g., hourly data with daily seasonality
+        use_cached_orders=False,
+    )
     pdb.set_trace()
     # dataloader_sliding_window = dataloader.get_sliding_window_dataloader()
     import statsmodels.api as sm
@@ -127,18 +153,6 @@ def main():
         exog=endog_data.values[:, 1:],
         order=(1, 1, 1),
         seasonal_order=(1, 1, 1, 24),
-    )
-
-    # ARIMA per component
-    arima_overall, arima_windows, arima_details = evaluate_arima_multivariate(
-        darts_dl=darts_dl,
-        step=args.seq_len,
-        metric="MAE",
-        merge_val_into_train=True,
-        expand_train=True,
-        seasonal=True,  # set according to your data
-        m=24,  # e.g., hourly data with daily seasonality
-        use_cached_orders=True,
     )
 
     print("Samformer avg MAE:", samformer_overall)
@@ -259,15 +273,6 @@ def main():
     )
 
     pdb.set_trace()
-
-    engine = ARIMAEngine(
-        train_series=train_series,
-        val_series=val_series,
-        test_series=test_series,
-        args=args,
-        logger=logger,
-        log_dir=log_dir,
-    )
 
     # Read predictions from CSV file
     predictions_path = log_dir / "val_predictions.csv"

@@ -1,7 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 from darts.datasets import AirPassengersDataset
-from darts.models import ARIMA
+from darts.models import ARIMA, AutoARIMA
 from darts.utils.timeseries_generation import datetime_attribute_timeseries
 import pdb
 
@@ -12,7 +12,9 @@ series = AirPassengersDataset().load()
 future_cov = datetime_attribute_timeseries(series, "month", cyclic=True, add_length=6)
 
 # Define ARIMA parameters
-model = ARIMA(p=1, d=1, q=1, seasonal_order=(1, 1, 1, 12))
+# model = ARIMA(p=1, d=1, q=1, seasonal_order=(1, 1, 1, 12))
+model = AutoARIMA(season_length=12)
+pdb.set_trace()
 model.fit(series, future_covariates=future_cov)
 
 # Make predictions with confidence intervals
