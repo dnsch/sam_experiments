@@ -10,6 +10,7 @@ from src.utils.functions import (
     mean_branch_plot,
 )
 
+from src.base.torch_engine import BaseEngine
 from darts.models import ARIMA, AutoARIMA, VARIMA
 from darts.utils.timeseries_generation import holidays_timeseries
 from darts.metrics import mse, rmse, mae, mape
@@ -18,144 +19,269 @@ import pdb
 
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 
 
-# As the ARIMA model is not implemented in pytorch, it doesn't make sense that
-# it inherits from the BaseEngine
-class ARIMAEngine:
+# (As the ARIMA model is not implemented in pytorch, it doesn't make sense that
+# it inherits from the BaseEngine)
+# let's try to implement this in the same fashion as the other enignes,
+# and scrap the parts that aren't needed
+
+
+class ARIMA_Engine(BaseEngine):
     """
     ARIMA forecasting engine using Darts library with multivariate support
     """
 
+    # TODO: check what to do with the **args here, are they really needed? Do
+    # we want kwargs instead?
     def __init__(
         self,
-        model,
-        dataloader,
-        args,
-        log_dir,
-        logger,
-        seed,
-        **kwargs,
+        # batch_size=1,
+        # num_channels=1,
+        pred_len=1,
+        # no_sam=True,
+        # use_revin=True,
+        # gsam=False,
+        **args,
     ):
-        # self.model = model.to(self._device)
-        self.args = args
-        self.logger = logger
-        self.log_dir = log_dir
-        self._plot_path = self.log_dir / "plots"
-        # self.pred_len = args.horizon
-        # self.feature_names = train_series.columns
-        # self.n_features = len(self.feature_names)
-
-        # self.logger.info(f"Detected {self.n_features} features: {self.feature_names}")
+        super(ARIMA_Engine, self).__init__(**args)
+        # TODO: check if all class attributes should be named with a leading
+        # underscore
+        self.pred_len = pred_len
+        self.random_state = self._seed
+        # self._timeout = True
+        self._plot_path = self._save_path / "plots"
+        # Initialize metrics
+        self._mape = self._to_device(MeanAbsolutePercentageError())
+        self._rmse = self._to_device(MeanSquaredError(squared=False))
 
     def train(self):
         """Handles the model fitting based on user args"""
-        self._logger.info("Start training!")
+        self.logger.info("Start training!")
+        # TODO: turn this N here into a parameter, experiment with different
+        # values to get a good trade-off between speed and performance
+        N = 200  # tune based on accuracy/speed trade-off
+        train_df = self.dataloader["train_loader"]
+        train_df_window = (
+            train_df.sort_values(["unique_id", "ds"])
+            .groupby("unique_id", as_index=False)
+            .tail(N)
+        )
+        # train_data = train_df_window
+        train_data = train_df
+
+        # Fit the model
+        t1 = time.time()
+        self.model.fit(train_data)
+        t2 = time.time()
         pdb.set_trace()
-        # if self.args.arima_type == "VARIMA":
-        #     model = VARIMA()
-        #     model_string = "VARIMA"
-        # elif self.args.arima_type == "AutoARIMA":
-        #     model = AutoARIMA(
-        #         start_p=0,
-        #         start_q=0,
-        #         max_p=self.args.max_p,
-        #         max_q=self.args.max_q,
-        #         max_d=self.args.max_d,
-        #         seasonal=self.args.seasonal,
-        #         start_P=0,
-        #         start_Q=0,
-        #         max_P=self.args.max_P,
-        #         max_Q=self.args.max_Q,
-        #         max_D=self.args.max_D,
-        #         eason_length=self.args.seasonal_periods if self.args.seasonal else 1,
-        #         random_state=self.args.seed,
-        #     )
-        #     model_string = "AutoARIMA"
-        # else:
-        #     if self.args.seasonal:
-        #         seasonal_order = (
-        #             self.args.P,
-        #             self.args.D,
-        #             self.args.Q,
-        #             self.args.seasonal_periods,
-        #         )
-        #     else:
-        #         seasonal_order = None
-        #
-        #     model = ARIMA(
-        #         p=self.args.p,
-        #         d=self.args.d,
-        #         q=self.args.q,
-        #         seasonal_order=seasonal_order,
-        #         random_state=self.args.seed,
-        #     )
-        #     model_string = "ARIMA"
-
-        # if self.args.arima_type == "VARIMA":
-        #     if self.args.arima_holidays:
-        #         # Use future covariates
-        #         # from https://unit8co.github.io/darts/generated_api/darts.models.forecasting.varima.html
-        #         # "e.g. encode each timestep whether it is on a holiday"
-        #         future_cov = holidays_timeseries(series.time_index, "CN", add_length=6)
-        #         total_start_time = time.time()
-        #         model.fit(series, future_covariates=future_cov)
-        #     else:
-        #         total_start_time = time.time()
-        #         model.fit(series)
-        #
-        # else:
-        # Fit separate model for each feature with progress bar
-        pbar = tqdm(
-            enumerate(self.feature_names),
-            total=self.n_features,
-            desc=f"Training {model_string} models",
-            unit="feature",
+        # TODO: come up with better filename_suffix
+        filename_suffix = str(self.pred_len) + str(self.random_state)
+        self.model.save_statsforecast_model(
+            save_path=self._save_path, filename_suffix=filename_suffix
         )
 
-        total_start_time = time.time()
-        for i, feature_name in pbar:
-            # Update progress bar description
-            pbar.set_description(f"Training {model_type} for {feature_name}")
+        # Get train and test data
+        test_data = self.dataloader["test_loader"]
 
-            feature_start_time = time.time()
+        # Generate predictions for 96 steps ahead
+        h = 96  # Forecast 96 steps into the future
+        predictions = self.model.predict(h=h, level=[95])
 
-            # Extract univariate series for this feature
-            univariate_series = self.train_series.univariate_component(feature_name)
+        # Get all unique IDs
+        unique_ids = train_data["unique_id"].unique()
 
-            # Add a progress bar for model fitting
-            fitting_pbar = tqdm(total=1, desc=f"Fitting {feature_name}", leave=False)
-            model.fit(univariate_series)
-            fitting_pbar.update(1)
-            fitting_pbar.close()
+        # Create output directory
+        output_dir = "arima_plots_96_steps"
+        os.makedirs(output_dir, exist_ok=True)
 
-            # Store the model
-            self.models[feature_name] = model
+        # Create plots for each unique_id
+        for uid in tqdm(unique_ids, desc="Creating focused plots"):
+            # Filter data for current unique_id
+            train_df_full = train_data[train_data["unique_id"] == uid].copy()
+            test_df = test_data[test_data["unique_id"] == uid].copy()
+            pred = predictions[predictions["unique_id"] == uid].copy()
 
-            feature_end_time = time.time()
-            feature_duration = feature_end_time - feature_start_time
+            # Get only the last 48 training steps
+            train_df = train_df_full.tail(48).copy()
 
-            # Update progress bar with timing info
-            pbar.set_postfix(
-                {
-                    "time": f"{feature_duration:.1f}s",
-                    "avg_time": f"{(time.time() - total_start_time) / (i + 1):.1f}s",
-                }
+            # Limit test data to 96 steps (in case there's more)
+            test_df = test_df.head(96).copy()
+
+            plt.figure(figsize=(14, 6))
+
+            # Plot last 48 training steps
+            plt.plot(
+                train_df["ds"],
+                train_df["y"],
+                label="Training Data (Last 48 steps)",
+                color="blue",
+                linewidth=2,
             )
 
-            self.logger.info(
-                f"Feature {feature_name} training completed in {feature_duration:.2f} seconds"
+            # Plot actual test values (up to 96 steps)
+            if not test_df.empty:
+                plt.plot(
+                    test_df["ds"],
+                    test_df["y"],
+                    label=f"Actual Test Values ({len(test_df)} steps)",
+                    color="green",
+                    linewidth=2,
+                )
+
+            # Plot 96-step predictions
+            plt.plot(
+                pred["ds"],
+                pred["AutoARIMA"],
+                label="96-Step Forecast",
+                color="red",
+                linestyle="--",
+                linewidth=2,
             )
 
-        pbar.close()
+            # Plot confidence intervals
+            if "AutoARIMA-lo-95" in pred.columns and "AutoARIMA-hi-95" in pred.columns:
+                plt.fill_between(
+                    pred["ds"],
+                    pred["AutoARIMA-lo-95"],
+                    pred["AutoARIMA-hi-95"],
+                    alpha=0.3,
+                    color="red",
+                    label="95% Confidence Interval",
+                )
 
-        total_end_time = time.time()
-        self.logger.info(
-            f"All ARIMA models training completed in {total_end_time - total_start_time:.2f} seconds"
-        )
+            # Add vertical line to separate training and forecast periods
+            if not train_df.empty:
+                last_train_date = train_df["ds"].iloc[-1]
+                plt.axvline(
+                    x=last_train_date,
+                    color="black",
+                    linestyle=":",
+                    alpha=0.7,
+                    label="Train/Test Split",
+                )
 
-        # Evaluate on validation set
-        self.evaluate("val")
+            plt.title(f"ARIMA Focused Forecast View - {uid}")
+            plt.xlabel("Date")
+            plt.ylabel("Value")
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+            plt.xticks(rotation=45)
+
+            # Save the plot
+            filename = os.path.join(output_dir, f"arima_focused_96_forecast_{uid}.png")
+            plt.savefig(filename, dpi=150, bbox_inches="tight")
+            plt.close()
+
+        print(f"✅ Created {len(unique_ids)} focused forecast plots!")
+        print(f"📁 Plots saved in '{output_dir}' folder")
+
+    # if self.args.arima_type == "VARIMA":
+    #     model = VARIMA()
+    #     model_string = "VARIMA"
+    # elif self.args.arima_type == "AutoARIMA":
+    #     model = AutoARIMA(
+    #         start_p=0,
+    #         start_q=0,
+    #         max_p=self.args.max_p,
+    #         max_q=self.args.max_q,
+    #         max_d=self.args.max_d,
+    #         seasonal=self.args.seasonal,
+    #         start_P=0,
+    #         start_Q=0,
+    #         max_P=self.args.max_P,
+    #         max_Q=self.args.max_Q,
+    #         max_D=self.args.max_D,
+    #         eason_length=self.args.seasonal_periods if self.args.seasonal else 1,
+    #         random_state=self.args.seed,
+    #     )
+    #     model_string = "AutoARIMA"
+    # else:
+    #     if self.args.seasonal:
+    #         seasonal_order = (
+    #             self.args.P,
+    #             self.args.D,
+    #             self.args.Q,
+    #             self.args.seasonal_periods,
+    #         )
+    #     else:
+    #         seasonal_order = None
+    #
+    #     model = ARIMA(
+    #         p=self.args.p,
+    #         d=self.args.d,
+    #         q=self.args.q,
+    #         seasonal_order=seasonal_order,
+    #         random_state=self.args.seed,
+    #     )
+    #     model_string = "ARIMA"
+
+    # if self.args.arima_type == "VARIMA":
+    #     if self.args.arima_holidays:
+    #         # Use future covariates
+    #         # from https://unit8co.github.io/darts/generated_api/darts.models.forecasting.varima.html
+    #         # "e.g. encode each timestep whether it is on a holiday"
+    #         future_cov = holidays_timeseries(series.time_index, "CN", add_length=6)
+    #         total_start_time = time.time()
+    #         model.fit(series, future_covariates=future_cov)
+    #     else:
+    #         total_start_time = time.time()
+    #         model.fit(series)
+    #
+    # else:
+    # Fit separate model for each feature with progress bar
+    # pbar = tqdm(
+    #     enumerate(self.feature_names),
+    #     total=self.n_features,
+    #     desc=f"Training {model_string} models",
+    #     unit="feature",
+    # )
+    #
+    # total_start_time = time.time()
+    # for i, feature_name in pbar:
+    #     # Update progress bar description
+    #     pbar.set_description(f"Training {model_type} for {feature_name}")
+    #
+    #     feature_start_time = time.time()
+    #
+    #     # Extract univariate series for this feature
+    #     univariate_series = self.train_series.univariate_component(feature_name)
+    #
+    #     # Add a progress bar for model fitting
+    #     fitting_pbar = tqdm(total=1, desc=f"Fitting {feature_name}", leave=False)
+    #     model.fit(univariate_series)
+    #     fitting_pbar.update(1)
+    #     fitting_pbar.close()
+    #
+    #     # Store the model
+    #     self.models[feature_name] = model
+    #
+    #     feature_end_time = time.time()
+    #     feature_duration = feature_end_time - feature_start_time
+    #
+    #     # Update progress bar with timing info
+    #     pbar.set_postfix(
+    #         {
+    #             "time": f"{feature_duration:.1f}s",
+    #             "avg_time": f"{(time.time() - total_start_time) / (i + 1):.1f}s",
+    #         }
+    #     )
+    #
+    #     self.logger.info(
+    #         f"Feature {feature_name} training completed in {feature_duration:.2f} seconds"
+    #     )
+    #
+    # pbar.close()
+    #
+    # total_end_time = time.time()
+    # self.logger.info(
+    #     f"All ARIMA models training completed in {total_end_time - total_start_time:.2f} seconds"
+    # )
+    #
+    # # Evaluate on validation set
+    # self.evaluate("val")
+    #
 
     # def _predict_multivariate(self, n_periods, historical_series):
     #     """Generate predictions for all features"""
@@ -268,7 +394,8 @@ class ARIMAEngine:
                         order=ords["order"], seasonal_order=ords["seasonal_order"]
                     )
                 else:
-                    model = AutoARIMA(seasonal=seasonal, season_length=m)
+                    model = ARIMA(p=1, d=1, q=1, seasonal_order=(1, 1, 1, 12))
+                    # model = AutoARIMA(seasonal=seasonal, season_length=m)
 
                 model.fit(ts_comp)
                 y_pred_ts = model.predict(n=darts_dl.pred_len)  # univariate TimeSeries

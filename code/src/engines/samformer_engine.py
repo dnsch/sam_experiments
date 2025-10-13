@@ -1,7 +1,7 @@
 import torch
 import time
 import numpy as np
-from src.base.engine import BaseEngine
+from src.base.torch_engine import TorchEngine
 from src.utils.functions import (
     plot_stats,
     branch_plot,
@@ -12,8 +12,10 @@ from src.utils.functions import (
 import pdb
 from torchmetrics.regression import MeanAbsolutePercentageError, MeanSquaredError
 
+from typing import Tuple, List, Dict
 
-class SAMFormer_Engine(BaseEngine):
+
+class SAMFormer_Engine(TorchEngine):
     """
     SAMFormer pytorch trainer implemented in the sklearn fashion
     """
@@ -119,8 +121,10 @@ class SAMFormer_Engine(BaseEngine):
         train_loss = []
         train_mape = []
         train_rmse = []
+        pdb.set_trace()
 
         for batch_idx, data in enumerate(self._dataloader["train_loader"]):
+            pdb.set_trace()
             x_batch, y_batch = data
 
             x_batch = self._to_device(x_batch)

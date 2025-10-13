@@ -1,14 +1,14 @@
 import torch
 import time
 import numpy as np
-from src.base.engine import BaseEngine
+from src.base.torch_engine import TorchEngine
 from src.utils.functions import (
     plot_train_val_loss,
     plot_loss_metric,
 )
 
 
-class VGG_Engine(BaseEngine):
+class VGG_Engine(TorchEngine):
     """
     VGG pytorch trainer based off:
     https://github.com/tomgoldstein/loss-landscape/blob/master/cifar10/main.py

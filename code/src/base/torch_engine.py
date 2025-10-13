@@ -6,7 +6,7 @@ import numpy as np
 from src.utils.metrics import masked_mape, masked_rmse, compute_all_metrics
 
 
-class BaseEngine:
+class TorchEngine:
     def __init__(
         self,
         device,
@@ -24,7 +24,7 @@ class BaseEngine:
         logger,
         seed,
     ):
-        super().__init__()
+        # super().__init__()
         self._device = device
         self.model = model.to(self._device)
 

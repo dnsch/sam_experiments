@@ -1,7 +1,7 @@
 import torch
 import time
 import numpy as np
-from src.base.engine import BaseEngine
+from src.base.torch_engine import TorchEngine
 from src.utils.functions import (
     plot_stats,
     branch_plot,
@@ -13,8 +13,8 @@ from torchmetrics.regression import MeanAbsolutePercentageError, MeanSquaredErro
 
 import pdb
 
-class TSMixer_Engine(BaseEngine):
 
+class TSMixer_Engine(TorchEngine):
     def __init__(
         self,
         batch_size=1,
@@ -48,15 +48,15 @@ class TSMixer_Engine(BaseEngine):
             x_batch, y_batch = data
 
             x_batch = self._to_device(x_batch)
-            x_batch = x_batch.permute(0,2,1)
+            x_batch = x_batch.permute(0, 2, 1)
             y_batch = self._to_device(y_batch)
-            
+
             out_batch = self.model(x_batch, True)
 
             loss = self._loss_fn(out_batch, y_batch)
             mape = self._mape(out_batch, y_batch).item()
             rmse = self._rmse(out_batch, y_batch).item()
-            
+
             if not self.no_sam:
                 loss.backward()
                 self._optimizer.first_step(zero_grad=True)
@@ -98,7 +98,7 @@ class TSMixer_Engine(BaseEngine):
         total_valid_mape = []
         total_valid_rmse = []
         b1 = time.time()
-        
+
         for epoch in range(self._max_epochs):
             t1 = time.time()
             mtrain_loss, mtrain_mape, mtrain_rmse = self.train_batch()
@@ -139,7 +139,7 @@ class TSMixer_Engine(BaseEngine):
 
             model_list_save_path = self._save_path / "saved_models/"
             self.save_current_model(model_list_save_path, epoch)
-            
+
             if mvalid_loss < min_loss:
                 self.save_model(self._save_path)
                 self._logger.info(
@@ -159,7 +159,7 @@ class TSMixer_Engine(BaseEngine):
                     )
                     self._epochs = epoch + 1
                     break
-                    
+
             b2 = time.time()
             if self._timeout:
                 if (b2 - b1) > (6 * 60 * 60):
@@ -169,7 +169,7 @@ class TSMixer_Engine(BaseEngine):
                     break
 
             self._epochs = epoch + 1
-            
+
         try:
             plot_stats(
                 total_train_loss,
@@ -194,19 +194,19 @@ class TSMixer_Engine(BaseEngine):
 
         preds = []
         labels = []
-        
+
         # Use appropriate dataloader for the mode
         dataloader_key = "val_loader" if mode == "val" else "test_loader"
-        
+
         with torch.no_grad():
             for batch_idx, data in enumerate(self._dataloader[dataloader_key]):
                 x_batch, y_batch = data
-                x_batch = x_batch.permute(0,2,1)
+                x_batch = x_batch.permute(0, 2, 1)
                 x_batch, y_batch = self._to_device(self._to_tensor([x_batch, y_batch]))
-                
+
                 # TSMixer forward pass
                 out_batch = self.model(x_batch, True)
-                
+
                 preds.append(out_batch.squeeze(-1).cpu())
                 labels.append(y_batch.squeeze(-1).cpu())
 
@@ -226,7 +226,7 @@ class TSMixer_Engine(BaseEngine):
             with torch.no_grad():
                 for batch_idx, data in enumerate(self._dataloader["test_loader"]):
                     X, label = data
-                    X = X.permute(0,2,1)
+                    X = X.permute(0, 2, 1)
                     X, label = self._to_device(self._to_tensor([X, label]))
                     out_batch = self.model(X, True)
                     pdb.set_trace()
@@ -246,7 +246,7 @@ class TSMixer_Engine(BaseEngine):
             mean_per_day_mse = []
             per_day_preds = []
             per_day_labels = []
-            
+
             # Reshape for horizon-wise evaluation
             preds, labels = [
                 preds.reshape(preds.shape[0], self.num_channels, self.pred_len),
@@ -256,7 +256,7 @@ class TSMixer_Engine(BaseEngine):
                 torch.permute(preds, (0, 2, 1)),
                 torch.permute(labels, (0, 2, 1)),
             ]
-            
+
             # Evaluate per horizon step
             for i in range(self.model.horizon):
                 mse = self._loss_fn(preds[:, i, :], labels[:, i, :])
@@ -269,7 +269,7 @@ class TSMixer_Engine(BaseEngine):
 
             log = "Average per day Test MSE: {:.4f},"
             self._logger.info(log.format(np.mean(mean_per_day_mse)))
-            
+
             var_index = 0
             plot_mean_per_day(
                 per_day_preds,

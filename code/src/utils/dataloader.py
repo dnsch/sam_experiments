@@ -15,7 +15,7 @@ from darts import TimeSeries
 from pathlib import Path
 
 
-from typing import Optional, Iterator, Tuple
+from typing import Optional, Iterator, Tuple, Dict
 import pdb
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -120,6 +120,7 @@ class SamformerDataloader:
             self.test_arr, seq_len, pred_len, time_increment
         )
 
+        pdb.set_trace()
         # flatten target matrices
         flatten = lambda y: y.reshape((y.shape[0], y.shape[1] * y.shape[2]))
         y_train, y_val, y_test = flatten(y_train), flatten(y_val), flatten(y_test)
@@ -370,6 +371,221 @@ class CIFAR10Dataloader:
 
     def get_scaler(self):
         return self.scaler
+
+
+class StatsforecastDataloader:
+    def __init__(
+        self,
+        dataset,
+        args,
+        logger,
+        train_ratio=0.7,
+        val_ratio=0.2,
+        apply_scaling=False,
+        merge_train_val=False,  # New parameter
+    ):
+        file_path = (
+            SCRIPT_DIR.parents[2] / "data" / "samformer_datasets" / f"{dataset}.csv"
+        )
+        df_raw = pd.read_csv(file_path, index_col=0)
+
+        # Convert index to datetime if it's not already
+        df_raw.index = pd.to_datetime(df_raw.index)
+
+        n = len(df_raw)
+        self.args = args
+        self.apply_scaling = apply_scaling
+        self.merge_train_val = merge_train_val
+
+        # Use same split logic as SamformerDataloader
+        if dataset.startswith("ETTm"):
+            train_end = 12 * 30 * 24 * 4
+            val_end = train_end + 4 * 30 * 24 * 4
+            test_end = val_end + 4 * 30 * 24 * 4
+        elif dataset.startswith("ETTh"):
+            train_end = 12 * 30 * 24
+            val_end = train_end + 4 * 30 * 24
+            test_end = val_end + 4 * 30 * 24
+        else:
+            train_end = int(n * train_ratio)
+            val_end = n - int(n * val_ratio)
+            test_end = n
+
+        # Store split indices
+        self.train_end = train_end
+        self.val_end = val_end
+        self.test_end = test_end
+
+        if merge_train_val:
+            # Merge train and val into single train split
+            train_df_wide = df_raw[:val_end]  # Includes original train + val
+            test_df_wide = df_raw[val_end:test_end]
+            val_df_wide = None  # No separate validation set
+        else:
+            # Keep separate train, val, test splits
+            train_df_wide = df_raw[:train_end]
+            val_df_wide = df_raw[train_end:val_end]
+            test_df_wide = df_raw[val_end:test_end]
+
+        # TODO: don't think this makes sense for arima models
+        # # Apply scaling if requested
+        # if apply_scaling:
+        #     self.scaler = StandardScaler()
+        #     self.scaler.fit(train_df_wide.values)
+        #
+        #     train_df_wide_scaled = pd.DataFrame(
+        #         self.scaler.transform(train_df_wide.values),
+        #         index=train_df_wide.index,
+        #         columns=train_df_wide.columns
+        #     )
+        #
+        #     if val_df_wide is not None:
+        #         val_df_wide_scaled = pd.DataFrame(
+        #             self.scaler.transform(val_df_wide.values),
+        #             index=val_df_wide.index,
+        #             columns=val_df_wide.columns
+        #         )
+        #     else:
+        #         val_df_wide_scaled = None
+        #
+        #     test_df_wide_scaled = pd.DataFrame(
+        #         self.scaler.transform(test_df_wide.values),
+        #         index=test_df_wide.index,
+        #         columns=test_df_wide.columns
+        #     )
+        #
+        #     # Convert to long format
+        #     self.train_df = self._wide_to_long(train_df_wide_scaled)
+        #     self.val_df = self._wide_to_long(val_df_wide_scaled) if val_df_wide_scaled is not None else None
+        #     self.test_df = self._wide_to_long(test_df_wide_scaled)
+        # else:
+        #     self.scaler = None
+        #     # Convert to long format
+        self.train_df = self._wide_to_long(train_df_wide)
+        self.val_df = (
+            self._wide_to_long(val_df_wide) if val_df_wide is not None else None
+        )
+        self.test_df = self._wide_to_long(test_df_wide)
+
+        # Create full dataset
+        dfs_to_concat = [self.train_df]
+        if self.val_df is not None:
+            dfs_to_concat.append(self.val_df)
+        dfs_to_concat.append(self.test_df)
+        self.full_df = pd.concat(dfs_to_concat, ignore_index=True)
+
+        # Create dataloader dictionary (similar to SamformerDataloader)
+        self.dataloader = {
+            "train_loader": self.train_df,
+            "val_loader": self.val_df,
+            "test_loader": self.test_df,
+        }
+
+    def get_dataloader(self) -> Dict[str, Optional[pd.DataFrame]]:
+        """Get dataloader dictionary containing train, val, and test DataFrames."""
+        return self.dataloader
+
+    def _wide_to_long(self, df_wide: pd.DataFrame) -> pd.DataFrame:
+        """Convert wide format to long format expected by statsforecast."""
+        df_long = df_wide.reset_index().melt(
+            id_vars=["date"], var_name="unique_id", value_name="y"
+        )
+        df_long = df_long.rename(columns={"date": "ds"})
+        # Ensure proper column order
+        df_long = df_long[["unique_id", "ds", "y"]]
+        return df_long.sort_values(["unique_id", "ds"]).reset_index(drop=True)
+
+    def get_train_data(self) -> pd.DataFrame:
+        """Get training data in statsforecast format."""
+        return self.train_df.copy()
+
+    def get_val_data(self) -> Optional[pd.DataFrame]:
+        """Get validation data in statsforecast format. Returns None if merged."""
+        if self.val_df is None:
+            if self.merge_train_val:
+                print(
+                    "Warning: No validation data available because merge_train_val=True"
+                )
+            return None
+        return self.val_df.copy()
+
+    def get_test_data(self) -> pd.DataFrame:
+        """Get test data in statsforecast format."""
+        return self.test_df.copy()
+
+    def get_full_data(self) -> pd.DataFrame:
+        """Get full dataset in statsforecast format."""
+        return self.full_df.copy()
+
+    def get_train_val_data(self) -> pd.DataFrame:
+        """Get combined train+val data for final model training."""
+        if self.merge_train_val:
+            # Already merged in train_df
+            return self.train_df.copy()
+        else:
+            # Concatenate separate train and val
+            return pd.concat([self.train_df, self.val_df], ignore_index=True)
+
+    def get_scaler(self):
+        """Get the fitted scaler if scaling was applied."""
+        return self.scaler
+
+    def get_unique_ids(self) -> list:
+        """Get list of unique series identifiers."""
+        return self.train_df["unique_id"].unique().tolist()
+
+    # def inverse_transform_predictions(self, predictions: pd.DataFrame) -> pd.DataFrame:
+    #     """
+    #     Inverse transform predictions if scaling was applied.
+    #     """
+    #     if not self.apply_scaling or self.scaler is None:
+    #         return predictions
+    #
+    #     pred_copy = predictions.copy()
+    #
+    #     if "y" in pred_copy.columns:
+    #         # Handle long format predictions
+    #         unique_ids = self.get_unique_ids()
+    #         for i, uid in enumerate(unique_ids):
+    #             mask = pred_copy["unique_id"] == uid
+    #             if mask.any():
+    #                 values = pred_copy.loc[mask, "y"].values.reshape(-1, 1)
+    #                 # Create a temporary array with zeros for other features
+    #                 temp_array = np.zeros((len(values), len(unique_ids)))
+    #                 temp_array[:, i] = values.flatten()
+    #                 # Inverse transform and extract the relevant column
+    #                 inv_transformed = self.scaler.inverse_transform(temp_array)
+    #                 pred_copy.loc[mask, "y"] = inv_transformed[:, i]
+    #
+    #     return pred_copy
+
+    def get_data_info(self) -> Dict:
+        """Get information about the dataset splits."""
+        info = {
+            "train_size": len(self.train_df) // len(self.get_unique_ids()),
+            "test_size": len(self.test_df) // len(self.get_unique_ids()),
+            "n_series": len(self.get_unique_ids()),
+            "unique_ids": self.get_unique_ids(),
+            "merge_train_val": self.merge_train_val,
+            "date_range": {
+                "train": (self.train_df["ds"].min(), self.train_df["ds"].max()),
+                "test": (self.test_df["ds"].min(), self.test_df["ds"].max()),
+            },
+            "split_indices": {
+                "train_end": self.train_end,
+                "val_end": self.val_end,
+                "test_end": self.test_end,
+            },
+        }
+
+        if not self.merge_train_val and self.val_df is not None:
+            info["val_size"] = len(self.val_df) // len(self.get_unique_ids())
+            info["date_range"]["val"] = (
+                self.val_df["ds"].min(),
+                self.val_df["ds"].max(),
+            )
+
+        return info
 
 
 # Add these imports if not present

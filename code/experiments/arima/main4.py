@@ -11,15 +11,20 @@ sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "pyhessian"))
 sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "loss_landscape"))
 
 from src.utils.args import get_public_config
-from src.engines.arima_engine import ARIMAEngine
-from src.utils.dataloader import DartsDataloader
+
+# from src.engines.arima_engine import ARIMA_Engine
+from src.base.nixtla_engine import NixtlaEngine
+from src.utils.dataloader import StatsforecastDataloader
 from src.utils.logging import get_logger
 
 import numpy as np
 import torch
 import pandas as pd
 import time
-from darts.models import AutoARIMA
+
+# from darts.models import AutoARIMA
+from statsforecast import StatsForecast
+from statsforecast.models import AutoARIMA
 
 # from darts import TimeSeries
 # from darts.models import ARIMA, AutoARIMA
@@ -42,6 +47,9 @@ def set_seed(seed):
 def get_config():
     parser = get_public_config()
 
+    # StatsForecast specific parameters
+    # TODO: change this some auto value as in the code down below
+    parser.add_argument("--n_cores", type=int, default=8, help="Autoregressive order")
     # ARIMA specific parameters
     parser.add_argument(
         "--seasonal", type=bool, default=True, help="Use seasonal ARIMA"
@@ -112,22 +120,75 @@ def main():
 
     dataset_name = args.dataset
     time_increment = 1
-    dataloader_instance = DartsDataloader(dataset_name, args, logger, time_increment)
-    data = dataloader_instance.get_dataloader()
-
-    darts_dl = DartsDataloader(dataset_name, args, logger, time_increment=1)
-    # model = ARIMA(p=1, d=1, q=1, seasonal_order=(1, 1, 1, 12))
-    model = AutoARIMA(season_length=12)
-
-    engine = ARIMAEngine(
-        model=model,
-        dataloader=darts_dl,
+    # The statsforecast models work a bit different from the others,
+    # first, we load a dedicated dataloader instance
+    dataloader_instance = StatsforecastDataloader(
+        dataset="ETTh1",
         args=args,
+        logger=logger,
+        merge_train_val=True,  # Merge train and val
+    )
+    data = dataloader_instance.get_dataloader()
+    import multiprocessing
+
+    # Since we won't utilize the GPU, we set the available cpu core count
+    n_cores = min(8, multiprocessing.cpu_count())  # avoid oversubscription
+
+    # We specify the model, in our case, an auto arima with a season lenght of
+    # 24 (hours)
+    sf_arima_model = AutoARIMA(
+        season_length=24,  # daily seasonality for hourly data
+        max_p=3,
+        max_q=3,  # smaller AR/MA search
+        max_P=1,
+        max_Q=1,  # smaller seasonal AR/MA search
+        d=1,
+        D=1,  # fix differencing if reasonable for ETTh1
+        stepwise=True,  # ensure stepwise search
+    )
+
+    # StatsForecast allows for testing multiple models in one go,
+    # for that, they need to be specified in the models array.
+    # For now, we only use the autoarima model
+
+    sf = StatsForecast(
+        models=[sf_arima_model],
+        freq="H",
+        n_jobs=n_cores,
+    )
+
+    # Use all available CPU cores
+    # n_cores = multiprocessing.cpu_count()
+    # print(f"Using {n_cores} CPU cores")
+    #
+    # # sf = StatsForecast(
+    # #     models=[AutoARIMA(season_length=24)],
+    # #     freq="H",
+    # #     n_jobs=n_cores,  # or n_jobs=-1 for all cores
+    # # )
+    #
+    # # model = ARIMA(p=1, d=1, q=1, seasonal_order=(1, 1, 1, 12))
+    # sf_arima_model = AutoARIMA(season_length=24)
+    # sf = StatsForecast(
+    #     models=[sf_arima_model],
+    #     freq="H",
+    #     n_jobs=-1,  # or n_jobs=-1 for all cores
+    # )
+    loss_fn = torch.nn.MSELoss()
+
+    # TODO: change loss_fn to args
+    engine = NixtlaEngine(
+        model=sf,
+        dataloader=data,
+        pred_len=args.horizon,
+        loss_fn=loss_fn,
+        backend="statsforecast",
         logger=logger,
         log_dir=log_dir,
         seed=args.seed,
     )
 
+    engine.train()
     # ARIMA per component
     arima_overall, arima_windows, arima_details = engine.evaluate_arima_multivariate(
         darts_dl=darts_dl,
