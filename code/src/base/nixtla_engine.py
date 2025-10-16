@@ -4,7 +4,9 @@ import torch
 import numpy as np
 
 from src.utils.metrics import masked_mape, masked_rmse, compute_all_metrics
+from tqdm import tqdm
 import pdb
+import matplotlib.pyplot as plt
 
 
 class NixtlaEngine:
@@ -29,6 +31,8 @@ class NixtlaEngine:
         self._save_path = log_dir
         self._logger = logger
         self._seed = seed
+        self._plot_path = self._save_path / "plots"
+        self._plot_path.mkdir(parents=True, exist_ok=True)
 
         if backend == "statsforecast":
             from statsforecast import StatsForecast
@@ -73,23 +77,26 @@ class NixtlaEngine:
             raise ValueError(f"Unknown backend: {backend}")
 
     # utils
-    def save_statsforecast_model(self, save_path, filename_suffix):
-        save_path.mkdir(parents=True, exist_ok=True)
-        filename = save_path / f"model_{filename_suffix}.pkl"
-        output_file = save_path / filename
+    def save_statsforecast_model(self):
+        saved_models_path = self._save_path / "saved_models"
+        saved_models_path.mkdir(parents=True, exist_ok=True)
+        model_filename = f"model_seed_{self._seed}.pkl"
+        output_file = saved_models_path / model_filename
         self.model.save(path=output_file, max_size=None, trim=None)
 
-    def load_statsforecast_model(self, model_dir, filename_suffix):
-        filename = model_dir / f"model_{filename_suffix}.pkl"
-        loaded_model = self.model.load(filename)
-        return loaded_model
+    def load_statsforecast_model(self):
+        saved_models_path = self._save_path / "saved_models"
+        filename = saved_models_path / f"model_seed_{self._seed}.pkl"
+        self.model.load(filename)
+        # loaded_model = self.model.load(filename)
+        # return loaded_model
 
     # Training
     def train(self):
         self._logger.info("Start training!")
         # TODO: turn this N here into a parameter, experiment with different
         # values to get a good trade-off between speed and performance
-        N = 200  # tune based on accuracy/speed trade-off
+        N = 20  # tune based on accuracy/speed trade-off
         train_df = self._dataloader["train_loader"]
         train_df_window = (
             train_df.sort_values(["unique_id", "ds"])
@@ -103,15 +110,12 @@ class NixtlaEngine:
         t1 = time.time()
         self.model.fit(train_data)
         t2 = time.time()
-        pdb.set_trace()
-        # TODO: come up with better filename_suffix
-        filename_suffix = str(self.pred_len) + str(self._seed)
-        self.save_statsforecast_model(
-            save_path=self._save_path, filename_suffix=filename_suffix
-        )
+        # TODO: check if arguments should be allowed for this function
+        # maybe allow for different naming etc.
+        self.save_statsforecast_model()
 
         # Get train and test data
-        test_data = self.dataloader["test_loader"]
+        test_data = self._dataloader["test_loader"]
 
         # Generate predictions for 96 steps ahead
         h = 96  # Forecast 96 steps into the future
@@ -119,10 +123,6 @@ class NixtlaEngine:
 
         # Get all unique IDs
         unique_ids = train_data["unique_id"].unique()
-
-        # Create output directory
-        output_dir = "arima_plots_96_steps"
-        os.makedirs(output_dir, exist_ok=True)
 
         # Create plots for each unique_id
         for uid in tqdm(unique_ids, desc="Creating focused plots"):
@@ -198,12 +198,18 @@ class NixtlaEngine:
             plt.xticks(rotation=45)
 
             # Save the plot
-            filename = os.path.join(output_dir, f"arima_focused_96_forecast_{uid}.png")
+
+            filename = self._plot_path / f"arima_focused_96_forecast_{uid}.png"
             plt.savefig(filename, dpi=150, bbox_inches="tight")
             plt.close()
 
         print(f"✅ Created {len(unique_ids)} focused forecast plots!")
-        print(f"📁 Plots saved in '{output_dir}' folder")
+
+        # TODO: write evaluate function and use it here to calculate some test
+        # loss
+
+        # TODO: format code such that it has a similar structure as the other
+        # engine files
 
         wait, min_loss = 0, np.inf
 
@@ -246,6 +252,108 @@ class NixtlaEngine:
                     break
 
         self.evaluate("test")
+
+    def evaluate(self, mode):
+        if mode == "test":
+            self.load_statsforecast_model()
+            # self.load_model(self._save_path)
+
+        preds = []
+        labels = []
+        # with torch.no_grad():
+        #     for batch_idx, data in enumerate(self._dataloader["val_loader"]):
+        #         # X (b, t, n, f), label (b, t, n, 1)
+        #         x_batch, y_batch = data
+        #         x_batch, y_batch = self._to_device(self._to_tensor([x_batch, y_batch]))
+        #         out_batch = self.model(x_batch, True)
+        #         preds.append(out_batch.squeeze(-1).cpu())
+        #         labels.append(y_batch.squeeze(-1).cpu())
+        #
+        # preds = torch.cat(preds, dim=0)
+        # labels = torch.cat(labels, dim=0)
+        #
+        # if mode == "val":
+        #     mse = self._loss_fn(preds, labels).item()
+        #     mape = self._mape(preds, labels).item()
+        #     rmse = self._rmse(preds, labels).item()
+        #     return mse, mape, rmse
+
+        if mode == "test":
+            preds = []
+            labels = []
+            pdb.set_trace()
+            for batch_idx, data in enumerate(self._dataloader["test_loader"]):
+                # X (b, t, n, f), label (b, t, n, 1)
+                X, label = data
+                out_batch = self.model(X, True)
+                preds.append(out_batch.cpu())
+                labels.append(label.cpu())
+
+            preds = torch.cat(preds, dim=0)
+            labels = torch.cat(labels, dim=0)
+
+            mse = self._loss_fn(preds, labels).item()
+            mape = 0.0
+            rmse = 0.0
+
+            log = "Test MSE: {:.4f},"
+            self._logger.info(log.format(mse))
+
+            mean_per_day_mse = []
+            per_day_preds = []
+            per_day_labels = []
+            preds, labels = [
+                preds.reshape(preds.shape[0], self.num_channels, self.pred_len),
+                labels.reshape(labels.shape[0], self.num_channels, self.pred_len),
+            ]
+            preds, labels = [
+                torch.permute(preds, (0, 2, 1)),
+                torch.permute(labels, (0, 2, 1)),
+            ]
+            for i in range(self.model.horizon):
+                mse = self._loss_fn(preds[:, i, :], labels[:, i, :])
+                log = "Horizon {:d}, Test MSE: {:.4f}"
+                self._logger.info(log.format(i + 1, mse))
+                mean_per_day_mse.append(mse)
+
+                per_day_preds.append(preds[:, i, :].mean())
+                per_day_labels.append(labels[:, i, :].mean())
+
+            log = "Average per day Test MSE: {:.4f},"
+            self._logger.info(log.format(np.mean(mean_per_day_mse)))
+            var_index = 0
+            plot_mean_per_day(
+                per_day_preds,
+                per_day_labels,
+                self._plot_path,
+                f"mean_per_day_performance_plot.png",
+            )
+            mean_branch_plot(
+                preds[:5, :, :],
+                labels[:5, :, :],
+                self._plot_path,
+                f"mean_performance_plot_first_5",
+            )
+            mean_branch_plot(
+                preds[:100, :, :],
+                labels[:100, :, :],
+                self._plot_path,
+                f"mean_performance_plot_first_100",
+            )
+            branch_plot(
+                preds[:5, :, :],
+                labels[:5, :, :],
+                var_index,
+                self._plot_path,
+                f"sensor_{var_index}_branch_plot_first_5.png",
+            )
+            branch_plot(
+                preds[:100, :, :],
+                labels[:100, :, :],
+                var_index,
+                self._plot_path,
+                f"sensor_{var_index}_branch_plot_first_100.png",
+            )
 
     def fit(self, train_df, X_df=None):
         self._fit_fn(train_df, X_df)

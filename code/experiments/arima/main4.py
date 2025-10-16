@@ -136,15 +136,28 @@ def main():
 
     # We specify the model, in our case, an auto arima with a season lenght of
     # 24 (hours)
+    # sf_arima_model = AutoARIMA(
+    #     season_length=24,  # daily seasonality for hourly data
+    #     max_p=3,
+    #     max_q=3,  # smaller AR/MA search
+    #     max_P=1,
+    #     max_Q=1,  # smaller seasonal AR/MA search
+    #     d=1,
+    #     D=1,  # fix differencing if reasonable for ETTh1
+    #     stepwise=True,  # ensure stepwise search
+    # )
     sf_arima_model = AutoARIMA(
-        season_length=24,  # daily seasonality for hourly data
-        max_p=3,
-        max_q=3,  # smaller AR/MA search
+        season_length=24,
+        max_p=3,  # reduce from 3
+        max_q=3,  # reduce from 3
         max_P=1,
-        max_Q=1,  # smaller seasonal AR/MA search
+        max_Q=1,
         d=1,
-        D=1,  # fix differencing if reasonable for ETTh1
-        stepwise=True,  # ensure stepwise search
+        D=1,
+        stepwise=True,
+        # approximation=True,  # use approximation for speed
+        seasonal=True,
+        ic="aic",  # specify IC upfront
     )
 
     # StatsForecast allows for testing multiple models in one go,
@@ -154,7 +167,8 @@ def main():
     sf = StatsForecast(
         models=[sf_arima_model],
         freq="H",
-        n_jobs=n_cores,
+        # n_jobs=n_cores,
+        n_jobs=-1,
     )
 
     # Use all available CPU cores
@@ -189,6 +203,7 @@ def main():
     )
 
     engine.train()
+    pdb.set_trace()
     # ARIMA per component
     arima_overall, arima_windows, arima_details = engine.evaluate_arima_multivariate(
         darts_dl=darts_dl,
