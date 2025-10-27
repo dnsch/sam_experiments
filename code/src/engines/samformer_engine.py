@@ -121,10 +121,8 @@ class SAMFormer_Engine(TorchEngine):
         train_loss = []
         train_mape = []
         train_rmse = []
-        pdb.set_trace()
 
         for batch_idx, data in enumerate(self._dataloader["train_loader"]):
-            pdb.set_trace()
             x_batch, y_batch = data
 
             x_batch = self._to_device(x_batch)
@@ -310,6 +308,7 @@ class SAMFormer_Engine(TorchEngine):
                 for batch_idx, data in enumerate(self._dataloader["test_loader"]):
                     # X (b, t, n, f), label (b, t, n, 1)
                     X, label = data
+                    pdb.set_trace()
                     X, label = self._to_device(self._to_tensor([X, label]))
                     out_batch = self.model(X, True)
                     preds.append(out_batch.cpu())

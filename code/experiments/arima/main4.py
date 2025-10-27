@@ -155,7 +155,7 @@ def main():
         d=1,
         D=1,
         stepwise=True,
-        # approximation=True,  # use approximation for speed
+        approximation=True,  # use approximation for speed
         seasonal=True,
         ic="aic",  # specify IC upfront
     )

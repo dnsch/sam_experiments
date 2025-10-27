@@ -13,6 +13,7 @@ import torchvision.transforms as transforms
 from darts import TimeSeries
 
 from pathlib import Path
+import random
 
 
 from typing import Optional, Iterator, Tuple, Dict
@@ -58,6 +59,8 @@ def construct_sliding_window_data(data, seq_len, pred_len, time_increment=1):
     return np.array(x), np.array(y)
 
 
+# TODO: rename this to tsmixer dataloader or wherever the original ETTh1 etc.
+# dataset originated from
 class SamformerDataloader:
     def __init__(
         self,
@@ -93,56 +96,125 @@ class SamformerDataloader:
             val_end = n - int(n * val_ratio)
             test_end = n
 
-        # Keep split indices for aligned windows
         self.train_end = train_end
         self.val_end = val_end
         self.test_end = test_end
 
-        train_df = df_raw[:train_end]
-        val_df = df_raw[train_end - seq_len : val_end]
-        test_df = df_raw[val_end - seq_len : test_end]
+        self.dataloader = self.create_dataloader(df_raw, train_end, val_end, test_end)
 
-        # standardize by training set
-        self.scaler = StandardScaler()
-        self.scaler.fit(train_df.values)
-        self.train_arr = self.scaler.transform(train_df.values)
-        self.val_arr = self.scaler.transform(val_df.values)
-        self.test_arr = self.scaler.transform(test_df.values)
+    def create_dataloader(
+        self, df_raw, train_end, val_end, test_end, sequential_comparison=False
+    ):
+        if sequential_comparison:
+            # Get multiple train/val/test splits
+            train_val_test_splits = self.construct_multiple_train_test_split_data(
+                df_raw,
+                splits_num=10,
+                train_end=train_end,
+                val_end=val_end,
+                seed=None,
+            )
 
-        # apply sliding window
-        x_train, y_train = construct_sliding_window_data(
-            self.train_arr, seq_len, pred_len, time_increment
-        )
-        x_val, y_val = construct_sliding_window_data(
-            self.val_arr, seq_len, pred_len, time_increment
-        )
-        x_test, y_test = construct_sliding_window_data(
-            self.test_arr, seq_len, pred_len, time_increment
-        )
+            # Process each split
+            dataloaders_list = []
+            scalers_list = []
 
-        pdb.set_trace()
-        # flatten target matrices
-        flatten = lambda y: y.reshape((y.shape[0], y.shape[1] * y.shape[2]))
-        y_train, y_val, y_test = flatten(y_train), flatten(y_val), flatten(y_test)
-        train_dataset = LabeledDataset(x_train, y_train)
-        val_dataset = LabeledDataset(x_val, y_val)
-        test_dataset = LabeledDataset(x_test, y_test)
+            for train_data, val_data, test_data in train_val_test_splits:
+                # Create scaler for this split and fit on training data
+                scaler = StandardScaler()
+                scaler.fit(train_data.values)
 
-        train_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=args.batch_size, shuffle=True
-        )
-        val_loader = torch.utils.data.DataLoader(
-            val_dataset, batch_size=args.batch_size, shuffle=True
-        )
-        test_loader = torch.utils.data.DataLoader(
-            test_dataset, batch_size=args.batch_size, shuffle=False
-        )
+                # Transform data
+                train_arr = scaler.transform(train_data.values)
+                val_arr = scaler.transform(val_data.values)
+                test_arr = scaler.transform(test_data.values)
 
-        self.dataloader = {
-            "train_loader": train_loader,
-            "val_loader": val_loader,
-            "test_loader": test_loader,
-        }
+                # Apply sliding window
+                x_train, y_train = construct_sliding_window_data(
+                    train_arr, self.seq_len, self.pred_len, time_increment
+                )
+                x_val, y_val = construct_sliding_window_data(
+                    val_arr, self.seq_len, self.pred_len, time_increment
+                )
+                x_test, y_test = construct_sliding_window_data(
+                    test_arr, self.seq_len, self.pred_len, time_increment
+                )
+
+                # Create datasets and dataloaders
+                train_dataset = LabeledDataset(x_train, y_train)
+                val_dataset = LabeledDataset(x_val, y_val)
+                test_dataset = LabeledDataset(x_test, y_test)
+
+                train_loader = torch.utils.data.DataLoader(
+                    train_dataset, batch_size=args.batch_size, shuffle=True
+                )
+                val_loader = torch.utils.data.DataLoader(
+                    val_dataset, batch_size=args.batch_size, shuffle=True
+                )
+                test_loader = torch.utils.data.DataLoader(
+                    test_dataset, batch_size=args.batch_size, shuffle=False
+                )
+
+                split_dataloader = {
+                    "train_loader": train_loader,
+                    "val_loader": val_loader,
+                    "test_loader": test_loader,
+                }
+
+                dataloaders_list.append(split_dataloader)
+                scalers_list.append(scaler)
+
+            # Store the first scaler for compatibility with existing methods
+            self.scaler = scalers_list[0]
+            self.scalers_list = scalers_list
+
+            return dataloaders_list
+
+        else:
+            # Regular processing
+            train_df = df_raw[:train_end]
+            val_df = df_raw[train_end - self.seq_len : val_end]
+            test_df = df_raw[val_end - self.seq_len : test_end]
+
+            # standardize by training set
+            self.scaler = StandardScaler()
+            self.scaler.fit(train_df.values)
+            self.train_arr = self.scaler.transform(train_df.values)
+            self.val_arr = self.scaler.transform(val_df.values)
+            self.test_arr = self.scaler.transform(test_df.values)
+
+            # apply sliding window
+            x_train, y_train = construct_sliding_window_data(
+                self.train_arr, self.seq_len, self.pred_len, time_increment
+            )
+            x_val, y_val = construct_sliding_window_data(
+                self.val_arr, self.seq_len, self.pred_len, time_increment
+            )
+            x_test, y_test = construct_sliding_window_data(
+                self.test_arr, self.seq_len, self.pred_len, time_increment
+            )
+
+            # Create datasets and dataloaders
+            train_dataset = LabeledDataset(x_train, y_train)
+            val_dataset = LabeledDataset(x_val, y_val)
+            test_dataset = LabeledDataset(x_test, y_test)
+
+            train_loader = torch.utils.data.DataLoader(
+                train_dataset, batch_size=args.batch_size, shuffle=True
+            )
+            val_loader = torch.utils.data.DataLoader(
+                val_dataset, batch_size=args.batch_size, shuffle=True
+            )
+            test_loader = torch.utils.data.DataLoader(
+                test_dataset, batch_size=args.batch_size, shuffle=False
+            )
+
+            dataloader = {
+                "train_loader": train_loader,
+                "val_loader": val_loader,
+                "test_loader": test_loader,
+            }
+            return dataloader
 
     def get_dataloader(self):
         return self.dataloader
@@ -183,6 +255,76 @@ class SamformerDataloader:
         )
         for i in range(x.shape[0]):
             yield torch.FloatTensor(x[i]), torch.FloatTensor(y[i])
+
+    def construct_multiple_train_test_split_data(
+        self,
+        data,
+        splits_num=1,
+        train_end=None,
+        val_end=None,
+        seed=None,
+    ):
+        if seed is not None:
+            random.seed(seed)
+
+        splits = []
+
+        # Check if we have enough data for the requested number of splits
+        min_data_per_split = self.seq_len + self.pred_len
+        available_data_after_first = len(data) - (val_end + self.pred_len)
+        max_possible_additional_splits = (
+            available_data_after_first // min_data_per_split
+        )
+
+        if splits_num - 1 > max_possible_additional_splits:
+            raise ValueError(
+                f"Cannot create {splits_num} splits. Maximum possible splits: {max_possible_additional_splits + 1}"
+            )
+
+        # first_train_data = data[: val_end + seq_len]
+        # first_test_data = data[val_end : val_end + pred_len]
+        # first_data_split = [first_train_data, first_test_data]
+
+        test_end = val_end - self.seq_len + self.pred_len
+        first_train_data = data[:train_end]
+        first_val_data = data[train_end - self.seq_len : val_end]
+        first_test_data = data[val_end - self.seq_len : test_end]
+
+        first_data_split = [first_train_data, first_val_data, first_test_data]
+
+        splits.append(first_data_split)
+
+        # Pre-generate evenly distributed random val_ends for remaining splits
+        if splits_num > 1:
+            start_point = (
+                test_end + self.seq_len
+            )  # Earliest possible start for next split
+            end_point = len(data) - self.pred_len  # Latest possible end
+
+            # Divide the available range into roughly equal segments
+            total_range = end_point - start_point
+            segment_size = total_range // (splits_num - 1)
+
+            random_val_ends = []
+            for i in range(splits_num - 1):
+                segment_start = start_point + i * segment_size
+                segment_end = min(start_point + (i + 1) * segment_size, end_point)
+
+                # Ensure we have at least some range in each segment
+                if segment_end > segment_start:
+                    random_val_end = random.randint(segment_start, segment_end)
+                    random_val_ends.append(random_val_end)
+
+            # Create splits using the pre-generated val_ends
+            for random_val_end in random_val_ends:
+                train_data = data[:random_val_end]
+                val_data = data[random_val_end - self.seq_len : random_val_end]
+                test_data = data[
+                    random_val_end - self.Seq_len : random_val_end + self.pred_len
+                ]
+                splits.append([train_data, val_data, test_data])
+
+        return splits
 
 
 # class SamformerDataloader:
@@ -393,6 +535,8 @@ class StatsforecastDataloader:
         df_raw.index = pd.to_datetime(df_raw.index)
 
         n = len(df_raw)
+        self.seq_len = args.seq_len
+        self.pred_len = args.horizon
         self.args = args
         self.apply_scaling = apply_scaling
         self.merge_train_val = merge_train_val
@@ -416,51 +560,76 @@ class StatsforecastDataloader:
         self.val_end = val_end
         self.test_end = test_end
 
+        # Try to create the same train/val/test sets as with the other
+        # dataloaders to ensure comparability
+        train_df = df_raw[:train_end]
+        val_df = df_raw[train_end - self.seq_len : val_end]
+        test_df = df_raw[val_end - self.seq_len : test_end]
+
+        # for the arima model, the data should be sequential,
+        # I think a validation dataset does not make sense here.
         if merge_train_val:
             # Merge train and val into single train split
             train_df_wide = df_raw[:val_end]  # Includes original train + val
-            test_df_wide = df_raw[val_end:test_end]
+            test_df_wide = df_raw[val_end - self.seq_len : test_end]
             val_df_wide = None  # No separate validation set
+
+            # The other dataloaders are for deep learning architectures that
+            # use batching. The model is trained on (shuffled) batches of
+            # training data, validated on (shuffled) batches of validation data
+            # and then tested on (sequential) batches of test data.
+            # The batches in the test data are not connected however, hence for
+            # each test batch the model only uses the training data, the
+            # validation data and the input section of the current test batch.
+            #
+            # For the arima model, however, the input data used for training
+            # has to be sequential and, due to the autoregressive nature of the
+            # model, it can only predict the next x timesteps that come after
+            # the training data. Because of this, we can only use the training
+            # and validation data, and the input section of the first test
+            # batch for fitting the model in order to predict the output
+            # section of the first test batch.
+            #
+            # As a consequence, we can only use the first test batch to ensure
+            # a fair comparison (that is, that they use the same input data)
+            # between the two models.
+            #
+            # This approach is handled by the sequential_comparison parameter:
+
+            # TODO: add this as an args parameter
+            sequential_comparison = True
+            if sequential_comparison:
+                # Since we do not give the model input after training and it
+                # predicts the next steps of the training input, we include
+                # the seq_len data in the training set
+                # train_df_wide = df_raw[:val_end]
+                # test_df_wide = df_raw[val_end - self.seq_len : test_end]
+                #
+                # We will create multiple random train/test splits for a better
+                # comparison
+
+                train_df_wide = df_raw[: val_end + self.seq_len]
+                test_df_wide = df_raw[val_end:test_end]
+
+                train_test_splits = self.construct_multiple_train_test_split_data(
+                    df_raw,
+                    self.seq_len,
+                    self.pred_len,
+                    splits_num=10,
+                    val_end=val_end,
+                    seed=None,
+                )
+                pdb.set_trace()
+            #     pass
+
+        # But let's keep this functionality
         else:
             # Keep separate train, val, test splits
             train_df_wide = df_raw[:train_end]
-            val_df_wide = df_raw[train_end:val_end]
-            test_df_wide = df_raw[val_end:test_end]
+            val_df_wide = df_raw[train_end - self.seq_len : val_end]
+            test_df_wide = df_raw[val_end - self.seq_len : test_end]
 
-        # TODO: don't think this makes sense for arima models
-        # # Apply scaling if requested
-        # if apply_scaling:
-        #     self.scaler = StandardScaler()
-        #     self.scaler.fit(train_df_wide.values)
-        #
-        #     train_df_wide_scaled = pd.DataFrame(
-        #         self.scaler.transform(train_df_wide.values),
-        #         index=train_df_wide.index,
-        #         columns=train_df_wide.columns
-        #     )
-        #
-        #     if val_df_wide is not None:
-        #         val_df_wide_scaled = pd.DataFrame(
-        #             self.scaler.transform(val_df_wide.values),
-        #             index=val_df_wide.index,
-        #             columns=val_df_wide.columns
-        #         )
-        #     else:
-        #         val_df_wide_scaled = None
-        #
-        #     test_df_wide_scaled = pd.DataFrame(
-        #         self.scaler.transform(test_df_wide.values),
-        #         index=test_df_wide.index,
-        #         columns=test_df_wide.columns
-        #     )
-        #
-        #     # Convert to long format
-        #     self.train_df = self._wide_to_long(train_df_wide_scaled)
-        #     self.val_df = self._wide_to_long(val_df_wide_scaled) if val_df_wide_scaled is not None else None
-        #     self.test_df = self._wide_to_long(test_df_wide_scaled)
-        # else:
-        #     self.scaler = None
-        #     # Convert to long format
+        # Convert to long format
         self.train_df = self._wide_to_long(train_df_wide)
         self.val_df = (
             self._wide_to_long(val_df_wide) if val_df_wide is not None else None
@@ -586,6 +755,87 @@ class StatsforecastDataloader:
             )
 
         return info
+
+    def construct_multiple_train_test_split_data(
+        self, data, seq_len, pred_len, splits_num=1, val_end=None, seed=None
+    ):
+        if seed is not None:
+            random.seed(seed)
+
+        splits = []
+
+        # Check if we have enough data for the requested number of splits
+        min_data_per_split = seq_len + pred_len
+        available_data_after_first = len(data) - (val_end + pred_len)
+        max_possible_additional_splits = (
+            available_data_after_first // min_data_per_split
+        )
+
+        if splits_num - 1 > max_possible_additional_splits:
+            raise ValueError(
+                f"Cannot create {splits_num} splits. Maximum possible splits: {max_possible_additional_splits + 1}"
+            )
+
+        first_train_data = data[: val_end + seq_len]
+        first_test_data = data[val_end : val_end + pred_len]
+
+        first_data_split = [first_train_data, first_test_data]
+        splits.append(first_data_split)
+
+        # Pre-generate evenly distributed random val_ends for remaining splits
+        if splits_num > 1:
+            start_point = (
+                val_end + pred_len + seq_len
+            )  # Earliest possible start for next split
+            end_point = len(data) - pred_len  # Latest possible end
+
+            # Divide the available range into roughly equal segments
+            total_range = end_point - start_point
+            segment_size = total_range // (splits_num - 1)
+
+            random_val_ends = []
+            for i in range(splits_num - 1):
+                segment_start = start_point + i * segment_size
+                segment_end = min(start_point + (i + 1) * segment_size, end_point)
+
+                # Ensure we have at least some range in each segment
+                if segment_end > segment_start:
+                    random_val_end = random.randint(segment_start, segment_end)
+                    random_val_ends.append(random_val_end)
+
+            # Create splits using the pre-generated val_ends
+            for random_val_end in random_val_ends:
+                train_data = data[: random_val_end + seq_len]
+                test_data = data[random_val_end : random_val_end + pred_len]
+                splits.append([train_data, test_data])
+
+        return splits
+
+    # def construct_multiple_train_test_split_data(data, seq_len, pred_len, time_increment=1, splits_num, val_end, test_end):
+    #     splits = []
+    #     # First Train/Test split should correspond to the original samformer
+    #     # Train/Val/Test split
+    #
+    #     first_statsfcst_train_data = data[: val_end + self.seq_len]
+    #     first_statsfcst_test_data = data[val_end:test_end]
+    #
+    #     first_statsfcst_data_split = [first_statsfcst_train_data,
+    #                                   first_statsfcst_test_data]
+    #
+    #     for split in (splits_num-1):
+    #         a
+    #
+    #
+    #
+    #     n_samples = data.shape[0] - (seq_len - 1) - pred_len
+    #     range_ = np.arange(0, n_samples, time_increment)
+    #     x, y = list(), list()
+    #     for i in range_:
+    #         x.append(data[i : (i + seq_len)].T)
+    #         y.append(data[(i + seq_len) : (i + seq_len + pred_len)].T)
+    #     return np.array(x), np.array(y)
+    #
+    #
 
 
 # Add these imports if not present

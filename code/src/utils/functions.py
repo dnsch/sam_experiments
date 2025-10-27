@@ -342,6 +342,76 @@ def plot_mean_per_day(mean_per_day_preds, mean_per_day_labels, plot_path, title)
     plt.savefig(plot_filename)
 
 
+# StatsForecast functions
+def statsforecast_to_tensor(df, variable_name, flatten=False):
+    """
+    Convert statsforecast format DataFrame to PyTorch tensor.
+
+    Args:
+        df: StatsForecast DataFrame with columns ['unique_id', 'ds', variable_name]
+        flatten: bool, if True returns shape [1, total_length],
+                 if False returns shape [n_series, n_timesteps_per_series]
+
+    Returns:
+        torch.Tensor: Tensor in requested format
+    """
+    # Sort by unique_id and ds to ensure proper ordering
+    df_sorted = df.sort_values(["unique_id", "ds"])
+
+    # Convert values to tensor
+    values = df_sorted[variable_name].values
+    tensor_data = torch.tensor(values, dtype=torch.float32)
+
+    if flatten:
+        # Return flattened tensor with shape [1, total_length]
+        return tensor_data.unsqueeze(0)
+    else:
+        # Calculate dimensions for reshaping
+        unique_ids = df_sorted["unique_id"].unique()
+        n_series = len(unique_ids)
+        n_timesteps = len(df_sorted) // n_series
+
+        # Reshape to [n_series, n_timesteps_per_series]
+        return tensor_data.reshape(n_series, n_timesteps)
+
+
+def tensor_to_sliding_windows(tensor, seq_len, pred_len=0, time_increment=1):
+    """
+    Convert flattened tensor to sliding window format.
+
+    Args:
+        tensor: torch.Tensor of shape [1, total_length]
+        seq_len: int, length of each sequence window
+        pred_len: int, length of prediction window (default 0 if not used)
+        time_increment: int, step size between windows (default 1)
+
+    Returns:
+        torch.Tensor: Sliding windows with shape [n_windows, seq_len]
+    """
+
+    # Squeeze to get 1D tensor
+    data = tensor.squeeze(0)  # Shape: [20160]
+
+    # Calculate number of possible windows
+    n_samples = data.shape[0] - (seq_len - 1) - pred_len
+
+    if n_samples <= 0:
+        raise ValueError(
+            f"Not enough data points. Need at least {seq_len + pred_len}, got {data.shape[0]}"
+        )
+
+    # Create sliding windows
+    windows = []
+    for i in range(0, n_samples, time_increment):
+        # window = data[i : i + seq_len]
+        # window = data[(i + seq_len) : (i + seq_len + pred_len)].T)
+        window = data[(i + seq_len) : (i + seq_len + pred_len)]
+        windows.append(window)
+
+    # Stack into tensor
+    return torch.stack(windows)
+
+
 # Calculate max Eigenvalue of Hessian (= sharpness of the loss landscape)
 # using PyHessian
 # https://github.com/amirgholami/PyHessian/tree/master
