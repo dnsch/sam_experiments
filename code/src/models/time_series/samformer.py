@@ -4,7 +4,6 @@ from src.utils.samformer_utils.attention import scaled_dot_product_attention
 from src.utils.samformer_utils.revin import RevIN
 
 from src.base.model import BaseModel
-import pdb
 
 
 class SAMFormerArchitecture(BaseModel):

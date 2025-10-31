@@ -47,6 +47,7 @@ class SAMFormer_Engine(TorchEngine):
 
     import numpy as np
     import torch
+    # TODO: delete?
 
     def evaluate_samformer_on_windows(
         model,  # your trained Samformer model (in eval mode)
@@ -274,7 +275,8 @@ class SAMFormer_Engine(TorchEngine):
         except:
             print("plotting not successful")
 
-        self.evaluate("test")
+        result = self.evaluate("test")
+        return result
 
     def evaluate(self, mode):
         if mode == "test":
@@ -308,7 +310,6 @@ class SAMFormer_Engine(TorchEngine):
                 for batch_idx, data in enumerate(self._dataloader["test_loader"]):
                     # X (b, t, n, f), label (b, t, n, 1)
                     X, label = data
-                    pdb.set_trace()
                     X, label = self._to_device(self._to_tensor([X, label]))
                     out_batch = self.model(X, True)
                     preds.append(out_batch.cpu())
@@ -335,6 +336,19 @@ class SAMFormer_Engine(TorchEngine):
                 torch.permute(preds, (0, 2, 1)),
                 torch.permute(labels, (0, 2, 1)),
             ]
+
+            # If we want to scale the values back
+            # TODO:not sure if we maybe should just also scale arima values to
+            # have a easier comparison
+            preds, labels = [
+                self._scaler.inverse_transform(preds.squeeze()),
+                self._scaler.inverse_transform(labels.squeeze()),
+            ]
+            preds, labels = [
+                self._to_tensor(preds).unsqueeze(0),
+                self._to_tensor(labels).unsqueeze(0),
+            ]
+
             for i in range(self.model.horizon):
                 mse = self._loss_fn(preds[:, i, :], labels[:, i, :])
                 log = "Horizon {:d}, Test MSE: {:.4f}"
@@ -379,3 +393,5 @@ class SAMFormer_Engine(TorchEngine):
                 self._plot_path,
                 f"sensor_{var_index}_branch_plot_first_100.png",
             )
+            # TODO: add possibility for other losses
+            return np.mean(mean_per_day_mse)

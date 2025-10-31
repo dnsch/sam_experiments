@@ -82,6 +82,7 @@ class SamformerDataloader:
         self.seq_len = seq_len
         self.pred_len = pred_len
         self.args = args
+        self.time_increment = time_increment
 
         if dataset.startswith("ETTm"):
             train_end = 12 * 30 * 24 * 4
@@ -99,11 +100,39 @@ class SamformerDataloader:
         self.train_end = train_end
         self.val_end = val_end
         self.test_end = test_end
+        sequential_comparison = True
 
-        self.dataloader = self.create_dataloader(df_raw, train_end, val_end, test_end)
+        self.dataloader = self.create_dataloader(
+            df_raw,
+            train_end,
+            val_end,
+            test_end,
+            sequential_comparison=sequential_comparison,
+        )
+        # if sequential_comparison:
+        #     self.dataloader_list = self.create_dataloader(
+        #         df_raw,
+        #         train_end,
+        #         val_end,
+        #         test_end,
+        #         sequential_comparison=sequential_comparison,
+        #     )
+        # else:
+        #     self.dataloader = self.create_dataloader(
+        #         df_raw,
+        #         train_end,
+        #         val_end,
+        #         test_end,
+        #         sequential_comparison=sequential_comparison,
+        #     )
 
     def create_dataloader(
-        self, df_raw, train_end, val_end, test_end, sequential_comparison=False
+        self,
+        df_raw,
+        train_end,
+        val_end,
+        test_end,
+        sequential_comparison=False,
     ):
         if sequential_comparison:
             # Get multiple train/val/test splits
@@ -112,7 +141,7 @@ class SamformerDataloader:
                 splits_num=10,
                 train_end=train_end,
                 val_end=val_end,
-                seed=None,
+                seed=self.args.seed,
             )
 
             # Process each split
@@ -128,32 +157,43 @@ class SamformerDataloader:
                 train_arr = scaler.transform(train_data.values)
                 val_arr = scaler.transform(val_data.values)
                 test_arr = scaler.transform(test_data.values)
+                # train_arr = train_data.values
+                # val_arr = val_data.values
+                # test_arr = test_data.values
 
                 # Apply sliding window
                 x_train, y_train = construct_sliding_window_data(
-                    train_arr, self.seq_len, self.pred_len, time_increment
+                    train_arr, self.seq_len, self.pred_len, self.time_increment
                 )
                 x_val, y_val = construct_sliding_window_data(
-                    val_arr, self.seq_len, self.pred_len, time_increment
+                    val_arr, self.seq_len, self.pred_len, self.time_increment
                 )
                 x_test, y_test = construct_sliding_window_data(
-                    test_arr, self.seq_len, self.pred_len, time_increment
+                    test_arr, self.seq_len, self.pred_len, self.time_increment
                 )
 
+                # flatten target matrices
+                flatten = lambda y: y.reshape((y.shape[0], y.shape[1] * y.shape[2]))
+                y_train, y_val, y_test = (
+                    flatten(y_train),
+                    flatten(y_val),
+                    flatten(y_test),
+                )
                 # Create datasets and dataloaders
                 train_dataset = LabeledDataset(x_train, y_train)
                 val_dataset = LabeledDataset(x_val, y_val)
                 test_dataset = LabeledDataset(x_test, y_test)
 
                 train_loader = torch.utils.data.DataLoader(
-                    train_dataset, batch_size=args.batch_size, shuffle=True
+                    train_dataset, batch_size=self.args.batch_size, shuffle=True
                 )
                 val_loader = torch.utils.data.DataLoader(
-                    val_dataset, batch_size=args.batch_size, shuffle=True
+                    val_dataset, batch_size=self.args.batch_size, shuffle=True
                 )
                 test_loader = torch.utils.data.DataLoader(
-                    test_dataset, batch_size=args.batch_size, shuffle=False
+                    test_dataset, batch_size=self.args.batch_size, shuffle=False
                 )
+                # dataloaders_list[0]['train_loader'].dataset.x[0,0,:12]
 
                 split_dataloader = {
                     "train_loader": train_loader,
@@ -185,28 +225,31 @@ class SamformerDataloader:
 
             # apply sliding window
             x_train, y_train = construct_sliding_window_data(
-                self.train_arr, self.seq_len, self.pred_len, time_increment
+                self.train_arr, self.seq_len, self.pred_len, self.time_increment
             )
             x_val, y_val = construct_sliding_window_data(
-                self.val_arr, self.seq_len, self.pred_len, time_increment
+                self.val_arr, self.seq_len, self.pred_len, self.time_increment
             )
             x_test, y_test = construct_sliding_window_data(
-                self.test_arr, self.seq_len, self.pred_len, time_increment
+                self.test_arr, self.seq_len, self.pred_len, self.time_increment
             )
 
+            # flatten target matrices
+            flatten = lambda y: y.reshape((y.shape[0], y.shape[1] * y.shape[2]))
+            y_train, y_val, y_test = flatten(y_train), flatten(y_val), flatten(y_test)
             # Create datasets and dataloaders
             train_dataset = LabeledDataset(x_train, y_train)
             val_dataset = LabeledDataset(x_val, y_val)
             test_dataset = LabeledDataset(x_test, y_test)
 
             train_loader = torch.utils.data.DataLoader(
-                train_dataset, batch_size=args.batch_size, shuffle=True
+                train_dataset, batch_size=self.args.batch_size, shuffle=True
             )
             val_loader = torch.utils.data.DataLoader(
-                val_dataset, batch_size=args.batch_size, shuffle=True
+                val_dataset, batch_size=self.args.batch_size, shuffle=True
             )
             test_loader = torch.utils.data.DataLoader(
-                test_dataset, batch_size=args.batch_size, shuffle=False
+                test_dataset, batch_size=self.args.batch_size, shuffle=False
             )
 
             dataloader = {
@@ -221,6 +264,9 @@ class SamformerDataloader:
 
     def get_scaler(self):
         return self.scaler
+
+    def get_scaler_list(self):
+        return self.scalers_list
 
     def get_test_sliding_loader(
         self,
@@ -285,10 +331,9 @@ class SamformerDataloader:
         # first_test_data = data[val_end : val_end + pred_len]
         # first_data_split = [first_train_data, first_test_data]
 
-        test_end = val_end - self.seq_len + self.pred_len
         first_train_data = data[:train_end]
         first_val_data = data[train_end - self.seq_len : val_end]
-        first_test_data = data[val_end - self.seq_len : test_end]
+        first_test_data = data[val_end - self.seq_len : val_end + self.pred_len]
 
         first_data_split = [first_train_data, first_val_data, first_test_data]
 
@@ -297,7 +342,7 @@ class SamformerDataloader:
         # Pre-generate evenly distributed random val_ends for remaining splits
         if splits_num > 1:
             start_point = (
-                test_end + self.seq_len
+                val_end + self.pred_len
             )  # Earliest possible start for next split
             end_point = len(data) - self.pred_len  # Latest possible end
 
@@ -316,11 +361,18 @@ class SamformerDataloader:
                     random_val_ends.append(random_val_end)
 
             # Create splits using the pre-generated val_ends
+            # val_ends mark the end of the training set
             for random_val_end in random_val_ends:
-                train_data = data[:random_val_end]
-                val_data = data[random_val_end - self.seq_len : random_val_end]
+                # TODO: hard coded train ratio, maybe change this to a parameter
+                # we take 80% of the training set for training the model
+                # the other 20% of that set for validating it and selecting the
+                # best one.
+                train_ratio = 0.8
+                train_end = int(random_val_end * train_ratio)
+                train_data = data[:train_end]
+                val_data = data[train_end - self.seq_len : random_val_end]
                 test_data = data[
-                    random_val_end - self.Seq_len : random_val_end + self.pred_len
+                    random_val_end - self.seq_len : random_val_end + self.pred_len
                 ]
                 splits.append([train_data, val_data, test_data])
 
@@ -364,6 +416,7 @@ class SamformerDataloader:
 #             test_end = n
 #         train_df = df_raw[:train_end]
 #         val_df = df_raw[train_end - seq_len : val_end]
+#         # -seq_len, cause that part is used as input
 #         test_df = df_raw[val_end - seq_len : test_end]
 #         # standardize by training set
 #         self.scaler = StandardScaler()
@@ -608,7 +661,9 @@ class StatsforecastDataloader:
                 # We will create multiple random train/test splits for a better
                 # comparison
 
-                train_df_wide = df_raw[: val_end + self.seq_len]
+                train_df_wide = df_raw[:val_end]
+                # We don't subtract seq_len here as in the samformer model,
+                # bc. we don't need that as input in the Statsforecast models
                 test_df_wide = df_raw[val_end:test_end]
 
                 train_test_splits = self.construct_multiple_train_test_split_data(
@@ -617,8 +672,9 @@ class StatsforecastDataloader:
                     self.pred_len,
                     splits_num=10,
                     val_end=val_end,
-                    seed=None,
+                    seed=self.args.seed,
                 )
+                self.dataloader = train_test_splits
                 pdb.set_trace()
             #     pass
 
@@ -776,8 +832,8 @@ class StatsforecastDataloader:
                 f"Cannot create {splits_num} splits. Maximum possible splits: {max_possible_additional_splits + 1}"
             )
 
-        first_train_data = data[: val_end + seq_len]
-        first_test_data = data[val_end : val_end + pred_len]
+        first_train_data = self._wide_to_long(data[:val_end])
+        first_test_data = self._wide_to_long(data[val_end : val_end + self.pred_len])
 
         first_data_split = [first_train_data, first_test_data]
         splits.append(first_data_split)
@@ -785,7 +841,7 @@ class StatsforecastDataloader:
         # Pre-generate evenly distributed random val_ends for remaining splits
         if splits_num > 1:
             start_point = (
-                val_end + pred_len + seq_len
+                val_end + self.pred_len
             )  # Earliest possible start for next split
             end_point = len(data) - pred_len  # Latest possible end
 
@@ -804,9 +860,12 @@ class StatsforecastDataloader:
                     random_val_ends.append(random_val_end)
 
             # Create splits using the pre-generated val_ends
+            # val_ends mark the end of the training set
             for random_val_end in random_val_ends:
-                train_data = data[: random_val_end + seq_len]
-                test_data = data[random_val_end : random_val_end + pred_len]
+                train_data = self._wide_to_long(data[:random_val_end])
+                test_data = self._wide_to_long(
+                    data[random_val_end : random_val_end + pred_len]
+                )
                 splits.append([train_data, test_data])
 
         return splits

@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
+from torch.utils import data
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 # TODO: change paths here, don't need all of em
 sys.path.append(str(SCRIPT_DIR.parents[1]))
@@ -139,6 +141,89 @@ def load_optimizer(model, args, logger):
         raise ValueError(f"Optimizer '{args.optimizer}' not found in torch.optim.")
 
 
+def run_experiments_on_dataloader_list(
+    dataloader_instance,
+    dataloader_list,
+    args,
+    model,
+    loss_fn,
+    optimizer,
+    lr_scheduler,
+    log_dir,
+    logger,
+):
+    """
+    Execute training/evaluation for each dataloader in dataloader_list.
+
+    Args:
+        dataloader_list: List of dictionaries containing train/val/test dataloaders
+        args: Arguments object containing hyperparameters and configuration
+        model: The model to train/evaluate
+        loss_fn: Loss function
+        optimizer: Optimizer
+        lr_scheduler: Learning rate scheduler
+        log_dir: Directory for logging
+        logger: Logger object
+
+    Returns:
+        results: List of results from each experiment
+    """
+    # Get the scaler list
+    scaler_list = dataloader_instance.get_scaler_list()
+
+    results = []
+
+    # Iterate through each dataloader
+    for idx, dataloader in enumerate(dataloader_list):
+        print(f"\n{'=' * 60}")
+        print(f"Processing Experiment {idx + 1}/{len(dataloader_list)}")
+        print(f"{'=' * 60}\n")
+
+        # Get the corresponding scaler for this dataloader
+        scaler = scaler_list[idx] if idx < len(scaler_list) else None
+
+        # Create experiment-specific log directory
+        experiment_log_dir = log_dir / f"experiment_{idx}"
+
+        # Create the engine
+        engine = SAMFormer_Engine(
+            device=args.device,
+            model=model,
+            dataloader=dataloader,
+            scaler=scaler,
+            loss_fn=loss_fn,
+            lrate=args.lrate,
+            optimizer=optimizer,
+            scheduler=lr_scheduler,
+            clip_grad_value=0,
+            max_epochs=args.max_epochs,
+            patience=args.patience,
+            log_dir=experiment_log_dir,
+            logger=logger,
+            seed=args.seed,
+            batch_size=args.batch_size,
+            num_channels=dataloader["train_loader"].dataset[0][0].shape[0],
+            pred_len=args.horizon,
+            no_sam=args.no_sam,
+            use_revin=args.use_revin,
+            gsam=args.gsam,
+        )
+
+        # Run train or test based on mode
+        if args.mode == "train":
+            result = engine.train()
+        elif args.mode == "test":
+            result = engine.evaluate(args.mode)
+        else:
+            raise ValueError(f"Unknown mode: {args.mode}")
+
+        results.append(result)
+
+        print(f"\nCompleted Experiment {idx + 1}/{len(dataloader_list)}\n")
+
+    return results
+
+
 def main():
     args, log_dir, logger = get_config()
 
@@ -149,18 +234,32 @@ def main():
     dataloader_instance = SamformerDataloader(
         dataset_name, args, logger, time_increment
     )
-    dataloader = dataloader_instance.get_dataloader()
+    sequential_comparison = True
+    if sequential_comparison:
+        dataloader_list = dataloader_instance.get_dataloader()
 
-    model = SAMFormerArchitecture(
-        node_num=None,
-        input_dim=args.input_dim,
-        output_dim=args.output_dim,
-        num_channels=dataloader["train_loader"].dataset[0][0].shape[0],
-        seq_len=args.seq_len,
-        hid_dim=args.hid_dim,
-        horizon=args.horizon,
-        use_revin=args.use_revin,
-    )
+        model = SAMFormerArchitecture(
+            node_num=None,
+            input_dim=args.input_dim,
+            output_dim=args.output_dim,
+            num_channels=dataloader_list[0]["train_loader"].dataset[0][0].shape[0],
+            seq_len=args.seq_len,
+            hid_dim=args.hid_dim,
+            horizon=args.horizon,
+            use_revin=args.use_revin,
+        )
+    else:
+        dataloader = dataloader_instance.get_dataloader()
+        model = SAMFormerArchitecture(
+            node_num=None,
+            input_dim=args.input_dim,
+            output_dim=args.output_dim,
+            num_channels=dataloader["train_loader"].dataset[0][0].shape[0],
+            seq_len=args.seq_len,
+            hid_dim=args.hid_dim,
+            horizon=args.horizon,
+            use_revin=args.use_revin,
+        )
 
     optimizer = load_optimizer(model, args, logger)
     lr_scheduler = None
@@ -196,70 +295,91 @@ def main():
 
     loss_fn = torch.nn.MSELoss()
 
-    engine = SAMFormer_Engine(
-        device=args.device,
-        model=model,
-        dataloader=dataloader,
-        # scaler=scaler,
-        scaler=None,
-        loss_fn=loss_fn,
-        lrate=args.lrate,
-        optimizer=optimizer,
-        scheduler=lr_scheduler,
-        clip_grad_value=0,
-        # clip_grad_value=4,
-        max_epochs=args.max_epochs,
-        patience=args.patience,
-        log_dir=log_dir,
-        logger=logger,
-        seed=args.seed,
-        batch_size=args.batch_size,
-        num_channels=dataloader["train_loader"].dataset[0][0].shape[0],
-        pred_len=args.horizon,
-        no_sam=args.no_sam,
-        use_revin=args.use_revin,
-        gsam=args.gsam,
-    )
-
-    if args.mode == "train":
-        engine.train()
-    elif args.mode == "test":
-        engine.evaluate(args.mode)
-
-    top_eigenvalue, top_eigenvector = compute_top_eigenvalue_and_eigenvector(
-        model, loss_fn, dataloader["train_loader"]
-    )
-    print(f"Max Eigenvalue: {top_eigenvalue}")
-
-    from lib.utils.pyhessian.pyhessian import hessian
-
-    hessian_comp = hessian(
-        model, loss_fn, dataloader=dataloader["train_loader"], cuda=args.device
-    )
-    density_eigen, density_weight = hessian_comp.density()
-
-    # print('\n***Top Eigenvalues: ', top_eigenvalues)
-    # print('\n***Trace: ', np.mean(trace))
-
-    get_esd_plot(density_eigen, density_weight)
-    # TODO: check how many eigenvalues are negative, i.e. negative curvature
-    # -> not converged to perfect local minimum that satisfies 1st and 2nd
-    # optimality conditions
-
-    if args.hessian_directions:
-        max_ev, max_evec, min_ev, min_evec = compute_dominant_hessian_directions(
-            model,
-            loss_fn,
-            dataloader["train_loader"],
-            tol=1e-4,  # Pass train_loader
-        )
-        save_eigenvectors_to_hdf5(
+    if sequential_comparison:
+        results = run_experiments_on_dataloader_list(
+            dataloader_instance=dataloader_instance,
+            dataloader_list=dataloader_list,
             args=args,
-            net=model,
-            max_evec=max_evec,
-            min_evec=min_evec,
-            output_dir=log_dir + "hessian_directions",
+            model=model,
+            loss_fn=loss_fn,
+            optimizer=optimizer,
+            lr_scheduler=lr_scheduler,
+            log_dir=log_dir,
+            logger=logger,
         )
+
+        ### Optionally, aggregate or analyze results
+
+        for idx, result in enumerate(results):
+            print(f"Experiment {idx}: {result}")
+
+    else:
+        engine = SAMFormer_Engine(
+            device=args.device,
+            model=model,
+            dataloader=dataloader,
+            # scaler=scaler,
+            scaler=None,
+            loss_fn=loss_fn,
+            lrate=args.lrate,
+            optimizer=optimizer,
+            scheduler=lr_scheduler,
+            clip_grad_value=0,
+            # clip_grad_value=4,
+            max_epochs=args.max_epochs,
+            patience=args.patience,
+            log_dir=log_dir,
+            logger=logger,
+            seed=args.seed,
+            batch_size=args.batch_size,
+            num_channels=dataloader["train_loader"].dataset[0][0].shape[0],
+            pred_len=args.horizon,
+            no_sam=args.no_sam,
+            use_revin=args.use_revin,
+            gsam=args.gsam,
+        )
+
+        if args.mode == "train":
+            result = engine.train()
+            print(f"Result: {result}")
+        elif args.mode == "test":
+            result = engine.evaluate(args.mode)
+            print(f"Result: {result}")
+
+        top_eigenvalue, top_eigenvector = compute_top_eigenvalue_and_eigenvector(
+            model, loss_fn, dataloader["train_loader"]
+        )
+        print(f"Max Eigenvalue: {top_eigenvalue}")
+
+        from lib.utils.pyhessian.pyhessian import hessian
+
+        hessian_comp = hessian(
+            model, loss_fn, dataloader=dataloader["train_loader"], cuda=args.device
+        )
+        density_eigen, density_weight = hessian_comp.density()
+
+        # print('\n***Top Eigenvalues: ', top_eigenvalues)
+        # print('\n***Trace: ', np.mean(trace))
+
+        get_esd_plot(density_eigen, density_weight)
+        # TODO: check how many eigenvalues are negative, i.e. negative curvature
+        # -> not converged to perfect local minimum that satisfies 1st and 2nd
+        # optimality conditions
+
+        if args.hessian_directions:
+            max_ev, max_evec, min_ev, min_evec = compute_dominant_hessian_directions(
+                model,
+                loss_fn,
+                dataloader["train_loader"],
+                tol=1e-4,  # Pass train_loader
+            )
+            save_eigenvectors_to_hdf5(
+                args=args,
+                net=model,
+                max_evec=max_evec,
+                min_evec=min_evec,
+                output_dir=log_dir + "hessian_directions",
+            )
 
 
 if __name__ == "__main__":
