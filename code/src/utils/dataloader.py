@@ -661,10 +661,10 @@ class StatsforecastDataloader:
                 # We will create multiple random train/test splits for a better
                 # comparison
 
-                train_df_wide = df_raw[:val_end]
-                # We don't subtract seq_len here as in the samformer model,
-                # bc. we don't need that as input in the Statsforecast models
-                test_df_wide = df_raw[val_end:test_end]
+                # train_df_wide = df_raw[:val_end]
+                # # We don't subtract seq_len here as in the samformer model,
+                # # bc. we don't need that as input in the Statsforecast models
+                # test_df_wide = df_raw[val_end:test_end]
 
                 train_test_splits = self.construct_multiple_train_test_split_data(
                     df_raw,
@@ -675,7 +675,7 @@ class StatsforecastDataloader:
                     seed=self.args.seed,
                 )
                 self.dataloader = train_test_splits
-                pdb.set_trace()
+
             #     pass
 
         # But let's keep this functionality
@@ -685,26 +685,26 @@ class StatsforecastDataloader:
             val_df_wide = df_raw[train_end - self.seq_len : val_end]
             test_df_wide = df_raw[val_end - self.seq_len : test_end]
 
-        # Convert to long format
-        self.train_df = self._wide_to_long(train_df_wide)
-        self.val_df = (
-            self._wide_to_long(val_df_wide) if val_df_wide is not None else None
-        )
-        self.test_df = self._wide_to_long(test_df_wide)
+            # Convert to long format
+            self.train_df = self._wide_to_long(train_df_wide)
+            self.val_df = (
+                self._wide_to_long(val_df_wide) if val_df_wide is not None else None
+            )
+            self.test_df = self._wide_to_long(test_df_wide)
 
-        # Create full dataset
-        dfs_to_concat = [self.train_df]
-        if self.val_df is not None:
-            dfs_to_concat.append(self.val_df)
-        dfs_to_concat.append(self.test_df)
-        self.full_df = pd.concat(dfs_to_concat, ignore_index=True)
+            # Create full dataset
+            dfs_to_concat = [self.train_df]
+            if self.val_df is not None:
+                dfs_to_concat.append(self.val_df)
+            dfs_to_concat.append(self.test_df)
+            self.full_df = pd.concat(dfs_to_concat, ignore_index=True)
 
-        # Create dataloader dictionary (similar to SamformerDataloader)
-        self.dataloader = {
-            "train_loader": self.train_df,
-            "val_loader": self.val_df,
-            "test_loader": self.test_df,
-        }
+            # Create dataloader dictionary (similar to SamformerDataloader)
+            self.dataloader = {
+                "train_loader": self.train_df,
+                "val_loader": self.val_df,
+                "test_loader": self.test_df,
+            }
 
     def get_dataloader(self) -> Dict[str, Optional[pd.DataFrame]]:
         """Get dataloader dictionary containing train, val, and test DataFrames."""

@@ -8,6 +8,12 @@ from src.utils.functions import statsforecast_to_tensor, tensor_to_sliding_windo
 from tqdm import tqdm
 import pdb
 import matplotlib.pyplot as plt
+from src.utils.functions import (
+    plot_stats,
+    branch_plot,
+    plot_mean_per_day,
+    mean_branch_plot,
+)
 
 
 class NixtlaEngine:
@@ -18,6 +24,7 @@ class NixtlaEngine:
         pred_len,
         loss_fn,
         backend,
+        num_channels,
         log_dir,
         logger,
         seed,
@@ -28,6 +35,7 @@ class NixtlaEngine:
         self._dataloader = dataloader
         self._loss_fn = loss_fn
         self.backend = backend
+        self.num_channels = num_channels
         self.pred_len = pred_len
         self._save_path = log_dir
         self._logger = logger
@@ -98,7 +106,8 @@ class NixtlaEngine:
         # TODO: turn this N here into a parameter, experiment with different
         # values to get a good trade-off between speed and performance
         N = 20  # tune based on accuracy/speed trade-off
-        train_df = self._dataloader["train_loader"]
+        # train_df = self._dataloader["train_loader"]
+        train_df = self._dataloader[0]
         train_df_window = (
             train_df.sort_values(["unique_id", "ds"])
             .groupby("unique_id", as_index=False)
@@ -165,7 +174,9 @@ class NixtlaEngine:
         #             )
         #             break
         #
-        self.evaluate("test")
+        # TODO: save that somewhere else and return it via a getter method
+        result = self.evaluate("test")
+        return result
 
     def evaluate(self, mode):
         if mode == "test":
@@ -195,23 +206,23 @@ class NixtlaEngine:
         if mode == "test":
             preds = []
             labels = []
-            train_data = self._dataloader["train_loader"]
+            # train_data = self._dataloader["train_loader"]
+            train_data = self._dataloader[0]
             train_false = statsforecast_to_tensor(train_data, "y", False)
-            test_data = self._dataloader["test_loader"]
+            # test_data = self._dataloader["test_loader"]
+            test_data = self._dataloader[1]
             #
             # # Generate predictions for 96 steps ahead
             predictions = self.model.predict(h=self.pred_len, level=[95])
-            pdb.set_trace()
-            test_true = statsforecast_to_tensor(test_data, "y", True)
-            test_false = statsforecast_to_tensor(test_data, "y", False)
-            pred_true = statsforecast_to_tensor(predictions, "AutoARIMA", True)
-            pred_false = statsforecast_to_tensor(predictions, "AutoARIMA", False)
-            test_true_slid = tensor_to_sliding_windows(
-                tensor=test_true, seq_len=512, pred_len=96, time_increment=1
-            )
+            out_batch = statsforecast_to_tensor(predictions, "AutoARIMA", True)
+            label = statsforecast_to_tensor(test_data, "y", True)
+            # test_false = statsforecast_to_tensor(test_data, "y", False)
+            # pred_false = statsforecast_to_tensor(predictions, "AutoARIMA", False)
+            # test_true_slid = tensor_to_sliding_windows(
+            #     tensor=test_true, seq_len=512, pred_len=96, time_increment=1
+            # )
             # tensor_to_sliding_windows(tensor, seq_len, pred_len=0, time_increment=1):
 
-            pdb.set_trace()
             #
             # # Get all unique IDs
             # unique_ids = train_data["unique_id"].unique()
@@ -295,12 +306,17 @@ class NixtlaEngine:
             #     plt.savefig(filename, dpi=150, bbox_inches="tight")
             #     plt.close()
 
-            for batch_idx, data in enumerate(self._dataloader["test_loader"]):
-                # X (b, t, n, f), label (b, t, n, 1)
-                X, label = data
-                out_batch = self.model(X)
-                preds.append(out_batch.cpu())
-                labels.append(label.cpu())
+            # for batch_idx, data in enumerate(self._dataloader["test_loader"]):
+            # for batch_idx, data in enumerate(self._dataloader):
+            #     # X (b, t, n, f), label (b, t, n, 1)
+            #     pdb.set_trace()
+            #     X, label = data
+            #     out_batch = self.model(X)
+            #     preds.append(out_batch.cpu())
+            #     labels.append(label.cpu())
+
+            preds.append(out_batch.cpu())
+            labels.append(label.cpu())
 
             preds = torch.cat(preds, dim=0)
             labels = torch.cat(labels, dim=0)
@@ -323,7 +339,7 @@ class NixtlaEngine:
                 torch.permute(preds, (0, 2, 1)),
                 torch.permute(labels, (0, 2, 1)),
             ]
-            for i in range(self.model.horizon):
+            for i in range(self.pred_len):
                 mse = self._loss_fn(preds[:, i, :], labels[:, i, :])
                 log = "Horizon {:d}, Test MSE: {:.4f}"
                 self._logger.info(log.format(i + 1, mse))
@@ -367,6 +383,7 @@ class NixtlaEngine:
                 self._plot_path,
                 f"sensor_{var_index}_branch_plot_first_100.png",
             )
+            return np.mean(mean_per_day_mse)
 
     def fit(self, train_df, X_df=None):
         self._fit_fn(train_df, X_df)

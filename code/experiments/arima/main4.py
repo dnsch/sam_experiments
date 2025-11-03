@@ -32,6 +32,7 @@ from statsforecast.models import AutoARIMA
 # from darts.utils.utils import ModelMode
 
 import pdb
+import multiprocessing
 
 torch.set_num_threads(3)
 
@@ -113,6 +114,82 @@ def get_config():
     return args, log_dir, logger
 
 
+def run_experiments_on_data_list(data_list, args, logger, log_dir):
+    """
+    Execute training for each data entry in data_list using StatsForecast/AutoARIMA.
+
+    Args:
+        data_list: List of data splits (each containing train/val/test dataframes)
+        args: Arguments object containing hyperparameters and configuration
+        logger: Logger object
+        log_dir: Directory for logging
+
+    Returns:
+        results: List of results from each experiment
+    """
+    # Set CPU cores for parallel processing
+    n_cores = min(8, multiprocessing.cpu_count())
+
+    results = []
+
+    # Iterate through each data entry
+    for idx, data in enumerate(data_list):
+        print(f"\n{'=' * 60}")
+        print(f"Processing Experiment {idx + 1}/{len(data_list)}")
+        print(f"{'=' * 60}\n")
+
+        # Create the AutoARIMA model
+        sf_arima_model = AutoARIMA(
+            season_length=24,
+            max_p=3,
+            max_q=3,
+            max_P=1,
+            max_Q=1,
+            d=1,
+            D=1,
+            stepwise=True,
+            approximation=True,
+            seasonal=True,
+            ic="aic",
+        )
+
+        # Create StatsForecast instance with the model
+        sf = StatsForecast(
+            models=[sf_arima_model],
+            freq="H",
+            n_jobs=-1,
+        )
+
+        # Define loss function
+        loss_fn = torch.nn.MSELoss()
+
+        # Create experiment-specific log directory
+        # experiment_log_dir = f"{log_dir}/experiment_{idx}"
+        experiment_log_dir = log_dir / f"experiment_{idx}"
+
+        # Create the engine
+        engine = NixtlaEngine(
+            model=sf,
+            dataloader=data,
+            pred_len=args.horizon,
+            loss_fn=loss_fn,
+            backend="statsforecast",
+            num_channels=data[0]["unique_id"].nunique(),
+            logger=logger,
+            log_dir=experiment_log_dir,
+            seed=args.seed,
+        )
+
+        # Train the model
+        result = engine.train()
+
+        results.append(result)
+
+        print(f"\nCompleted Experiment {idx + 1}/{len(data_list)}\n")
+
+    return results
+
+
 def main():
     args, log_dir, logger = get_config()
 
@@ -129,80 +206,89 @@ def main():
         merge_train_val=True,  # Merge train and val
     )
     data = dataloader_instance.get_dataloader()
-    import multiprocessing
-
-    # Since we won't utilize the GPU, we set the available cpu core count
-    n_cores = min(8, multiprocessing.cpu_count())  # avoid oversubscription
-
-    # We specify the model, in our case, an auto arima with a season lenght of
-    # 24 (hours)
-    # sf_arima_model = AutoARIMA(
-    #     season_length=24,  # daily seasonality for hourly data
-    #     max_p=3,
-    #     max_q=3,  # smaller AR/MA search
-    #     max_P=1,
-    #     max_Q=1,  # smaller seasonal AR/MA search
-    #     d=1,
-    #     D=1,  # fix differencing if reasonable for ETTh1
-    #     stepwise=True,  # ensure stepwise search
-    # )
-    sf_arima_model = AutoARIMA(
-        season_length=24,
-        max_p=3,  # reduce from 3
-        max_q=3,  # reduce from 3
-        max_P=1,
-        max_Q=1,
-        d=1,
-        D=1,
-        stepwise=True,
-        approximation=True,  # use approximation for speed
-        seasonal=True,
-        ic="aic",  # specify IC upfront
+    # Execute all experiments
+    results = run_experiments_on_data_list(
+        data_list=data, args=args, logger=logger, log_dir=log_dir
     )
 
-    # StatsForecast allows for testing multiple models in one go,
-    # for that, they need to be specified in the models array.
-    # For now, we only use the autoarima model
+    # Analyze results
+    for idx, result in enumerate(results):
+        print(f"Experiment {idx}: {result}")
 
-    sf = StatsForecast(
-        models=[sf_arima_model],
-        freq="H",
-        # n_jobs=n_cores,
-        n_jobs=-1,
-    )
-
-    # Use all available CPU cores
-    # n_cores = multiprocessing.cpu_count()
-    # print(f"Using {n_cores} CPU cores")
+    # import multiprocessing
     #
-    # # sf = StatsForecast(
-    # #     models=[AutoARIMA(season_length=24)],
-    # #     freq="H",
-    # #     n_jobs=n_cores,  # or n_jobs=-1 for all cores
+    # # Since we won't utilize the GPU, we set the available cpu core count
+    # n_cores = min(8, multiprocessing.cpu_count())  # avoid oversubscription
+    #
+    # # We specify the model, in our case, an auto arima with a season lenght of
+    # # 24 (hours)
+    # # sf_arima_model = AutoARIMA(
+    # #     season_length=24,  # daily seasonality for hourly data
+    # #     max_p=3,
+    # #     max_q=3,  # smaller AR/MA search
+    # #     max_P=1,
+    # #     max_Q=1,  # smaller seasonal AR/MA search
+    # #     d=1,
+    # #     D=1,  # fix differencing if reasonable for ETTh1
+    # #     stepwise=True,  # ensure stepwise search
     # # )
+    # sf_arima_model = AutoARIMA(
+    #     season_length=24,
+    #     max_p=3,  # reduce from 3
+    #     max_q=3,  # reduce from 3
+    #     max_P=1,
+    #     max_Q=1,
+    #     d=1,
+    #     D=1,
+    #     stepwise=True,
+    #     approximation=True,  # use approximation for speed
+    #     seasonal=True,
+    #     ic="aic",  # specify IC upfront
+    # )
     #
-    # # model = ARIMA(p=1, d=1, q=1, seasonal_order=(1, 1, 1, 12))
-    # sf_arima_model = AutoARIMA(season_length=24)
+    # # StatsForecast allows for testing multiple models in one go,
+    # # for that, they need to be specified in the models array.
+    # # For now, we only use the autoarima model
+    #
     # sf = StatsForecast(
     #     models=[sf_arima_model],
     #     freq="H",
-    #     n_jobs=-1,  # or n_jobs=-1 for all cores
+    #     # n_jobs=n_cores,
+    #     n_jobs=-1,
     # )
-    loss_fn = torch.nn.MSELoss()
-
-    # TODO: change loss_fn to args
-    engine = NixtlaEngine(
-        model=sf,
-        dataloader=data,
-        pred_len=args.horizon,
-        loss_fn=loss_fn,
-        backend="statsforecast",
-        logger=logger,
-        log_dir=log_dir,
-        seed=args.seed,
-    )
-
-    engine.train()
+    #
+    # # Use all available CPU cores
+    # # n_cores = multiprocessing.cpu_count()
+    # # print(f"Using {n_cores} CPU cores")
+    # #
+    # # # sf = StatsForecast(
+    # # #     models=[AutoARIMA(season_length=24)],
+    # # #     freq="H",
+    # # #     n_jobs=n_cores,  # or n_jobs=-1 for all cores
+    # # # )
+    # #
+    # # # model = ARIMA(p=1, d=1, q=1, seasonal_order=(1, 1, 1, 12))
+    # # sf_arima_model = AutoARIMA(season_length=24)
+    # # sf = StatsForecast(
+    # #     models=[sf_arima_model],
+    # #     freq="H",
+    # #     n_jobs=-1,  # or n_jobs=-1 for all cores
+    # # )
+    # loss_fn = torch.nn.MSELoss()
+    #
+    # # TODO: change loss_fn to args
+    # engine = NixtlaEngine(
+    #     model=sf,
+    #     dataloader=data,
+    #     pred_len=args.horizon,
+    #     loss_fn=loss_fn,
+    #     backend="statsforecast",
+    #     logger=logger,
+    #     log_dir=log_dir,
+    #     seed=args.seed,
+    # )
+    #
+    # engine.train()
     pdb.set_trace()
     # ARIMA per component
     arima_overall, arima_windows, arima_details = engine.evaluate_arima_multivariate(
