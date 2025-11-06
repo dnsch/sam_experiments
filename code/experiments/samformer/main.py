@@ -231,10 +231,17 @@ def main():
 
     dataset_name = args.dataset
     time_increment = 1
-    dataloader_instance = SamformerDataloader(
-        dataset_name, args, logger, time_increment
-    )
+    # TODO: add this as parameter
     sequential_comparison = True
+    dataloader_instance = SamformerDataloader(
+        dataset_name,
+        args,
+        logger,
+        time_increment,
+        sequential_comparison=sequential_comparison,
+    )
+
+    # TODO: add this as parameter
     if sequential_comparison:
         dataloader_list = dataloader_instance.get_dataloader()
 
@@ -294,7 +301,6 @@ def main():
             )
 
     loss_fn = torch.nn.MSELoss()
-
     if sequential_comparison:
         results = run_experiments_on_dataloader_list(
             dataloader_instance=dataloader_instance,
@@ -314,12 +320,13 @@ def main():
             print(f"Experiment {idx}: {result}")
 
     else:
+        scaler = dataloader_instance.get_scaler()
         engine = SAMFormer_Engine(
             device=args.device,
             model=model,
             dataloader=dataloader,
-            # scaler=scaler,
-            scaler=None,
+            scaler=scaler,
+            # scaler=None,
             loss_fn=loss_fn,
             lrate=args.lrate,
             optimizer=optimizer,

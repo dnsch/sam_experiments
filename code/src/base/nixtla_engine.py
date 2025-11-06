@@ -6,10 +6,7 @@ import numpy as np
 from src.utils.metrics import masked_mape, masked_rmse, compute_all_metrics
 from src.utils.functions import statsforecast_to_tensor, tensor_to_sliding_windows
 from tqdm import tqdm
-import pdb
-import matplotlib.pyplot as plt
 from src.utils.functions import (
-    plot_stats,
     branch_plot,
     plot_mean_per_day,
     mean_branch_plot,
@@ -21,18 +18,20 @@ class NixtlaEngine:
         self,
         model,
         dataloader,
-        pred_len,
-        loss_fn,
-        backend,
-        num_channels,
-        log_dir,
-        logger,
-        seed,
+        scaler=None,
+        pred_len=1,
+        loss_fn=None,
+        backend=None,
+        num_channels=1,
+        log_dir=None,
+        logger=None,
+        seed=1,
         **kwargs,
     ):
         # super().__init__()
         self.model = model
         self._dataloader = dataloader
+        self._scaler = scaler
         self._loss_fn = loss_fn
         self.backend = backend
         self.num_channels = num_channels
@@ -97,8 +96,6 @@ class NixtlaEngine:
         saved_models_path = self._save_path / "saved_models"
         filename = saved_models_path / f"model_seed_{self._seed}.pkl"
         self.model.load(filename)
-        # loaded_model = self.model.load(filename)
-        # return loaded_model
 
     # Training
     def train(self):
@@ -106,15 +103,7 @@ class NixtlaEngine:
         # TODO: turn this N here into a parameter, experiment with different
         # values to get a good trade-off between speed and performance
         N = 20  # tune based on accuracy/speed trade-off
-        # train_df = self._dataloader["train_loader"]
-        train_df = self._dataloader[0]
-        train_df_window = (
-            train_df.sort_values(["unique_id", "ds"])
-            .groupby("unique_id", as_index=False)
-            .tail(N)
-        )
-        # train_data = train_df_window
-        train_data = train_df
+        train_data = self._dataloader[0]
 
         # Fit the model
         t1 = time.time()
@@ -123,57 +112,6 @@ class NixtlaEngine:
         # TODO: check if arguments should be allowed for this function
         # maybe allow for different naming etc.
         self.save_statsforecast_model()
-        #
-        # # Get train and test data
-        #
-        # print(f"✅ Created {len(unique_ids)} focused forecast plots!")
-        #
-        # # TODO: write evaluate function and use it here to calculate some test
-        # # loss
-        #
-        # # TODO: format code such that it has a similar structure as the other
-        # # engine files
-        #
-        # wait, min_loss = 0, np.inf
-        #
-        # for epoch in range(self._max_epochs):
-        #     t1 = time.time()
-        #     mtrain_loss, mtrain_mape, mtrain_rmse = self.train_batch()
-        #     t2 = time.time()
-        #
-        #     v1 = time.time()
-        #     mvalid_loss, mvalid_mape, mvalid_rmse = self.evaluate("val")
-        #     v2 = time.time()
-        #
-        #     cur_lr = (
-        #         self._lrate
-        #         if self._lr_scheduler is None
-        #         else self._lr_scheduler.get_last_lr()[0]
-        #     )
-        #     if self._lr_scheduler:
-        #         self._lr_scheduler.step()
-        #
-        #     self._logger.info(
-        #         f"Epoch: {epoch + 1:03d}, Train Loss: {mtrain_loss:.4f}, Train RMSE: {mtrain_rmse:.4f}, Train MAPE: {mtrain_mape:.4f}, "
-        #         f"Valid Loss: {mvalid_loss:.4f}, Valid RMSE: {mvalid_rmse:.4f}, Valid MAPE: {mvalid_mape:.4f}, "
-        #         f"Train Time: {(t2 - t1):.4f}s/epoch, Valid Time: {(v2 - v1):.4f}s, LR: {cur_lr:.4e}"
-        #     )
-        #
-        #     if mvalid_loss < min_loss:
-        #         self.save_model(self._save_path)
-        #         self._logger.info(
-        #             f"Val loss decrease from {min_loss:.4f} to {mvalid_loss:.4f}"
-        #         )
-        #         min_loss = mvalid_loss
-        #         wait = 0
-        #     else:
-        #         wait += 1
-        #         if wait == self._patience:
-        #             self._logger.info(
-        #                 f"Early stop at epoch {epoch + 1}, loss = {min_loss:.6f}"
-        #             )
-        #             break
-        #
         # TODO: save that somewhere else and return it via a getter method
         result = self.evaluate("test")
         return result
@@ -185,143 +123,36 @@ class NixtlaEngine:
 
         preds = []
         labels = []
-        # with torch.no_grad():
-        #     for batch_idx, data in enumerate(self._dataloader["val_loader"]):
-        #         # X (b, t, n, f), label (b, t, n, 1)
-        #         x_batch, y_batch = data
-        #         x_batch, y_batch = self._to_device(self._to_tensor([x_batch, y_batch]))
-        #         out_batch = self.model(x_batch, True)
-        #         preds.append(out_batch.squeeze(-1).cpu())
-        #         labels.append(y_batch.squeeze(-1).cpu())
-        #
-        # preds = torch.cat(preds, dim=0)
-        # labels = torch.cat(labels, dim=0)
-        #
-        # if mode == "val":
-        #     mse = self._loss_fn(preds, labels).item()
-        #     mape = self._mape(preds, labels).item()
-        #     rmse = self._rmse(preds, labels).item()
-        #     return mse, mape, rmse
 
         if mode == "test":
             preds = []
             labels = []
-            # train_data = self._dataloader["train_loader"]
-            train_data = self._dataloader[0]
-            train_false = statsforecast_to_tensor(train_data, "y", False)
-            # test_data = self._dataloader["test_loader"]
             test_data = self._dataloader[1]
-            #
             # # Generate predictions for 96 steps ahead
             predictions = self.model.predict(h=self.pred_len, level=[95])
+            # We only take the AutoARIMA values and not the confidence intervals
             out_batch = statsforecast_to_tensor(predictions, "AutoARIMA", True)
+
             label = statsforecast_to_tensor(test_data, "y", True)
-            # test_false = statsforecast_to_tensor(test_data, "y", False)
-            # pred_false = statsforecast_to_tensor(predictions, "AutoARIMA", False)
-            # test_true_slid = tensor_to_sliding_windows(
-            #     tensor=test_true, seq_len=512, pred_len=96, time_increment=1
-            # )
-            # tensor_to_sliding_windows(tensor, seq_len, pred_len=0, time_increment=1):
-
-            #
-            # # Get all unique IDs
-            # unique_ids = train_data["unique_id"].unique()
-            #
-            # # Create plots for each unique_id
-            # for uid in tqdm(unique_ids, desc="Creating focused plots"):
-            #     # Filter data for current unique_id
-            #     train_df_full = train_data[train_data["unique_id"] == uid].copy()
-            #     test_df = test_data[test_data["unique_id"] == uid].copy()
-            #     pred = predictions[predictions["unique_id"] == uid].copy()
-            #
-            #     # Get only the last 48 training steps
-            #     train_df = train_df_full.tail(48).copy()
-            #
-            #     # Limit test data to 96 steps (in case there's more)
-            #     test_df = test_df.head(96).copy()
-            #
-            #     plt.figure(figsize=(14, 6))
-            #
-            #     # Plot last 48 training steps
-            #     plt.plot(
-            #         train_df["ds"],
-            #         train_df["y"],
-            #         label="Training Data (Last 48 steps)",
-            #         color="blue",
-            #         linewidth=2,
-            #     )
-            #
-            #     # Plot actual test values (up to 96 steps)
-            #     if not test_df.empty:
-            #         plt.plot(
-            #             test_df["ds"],
-            #             test_df["y"],
-            #             label=f"Actual Test Values ({len(test_df)} steps)",
-            #             color="green",
-            #             linewidth=2,
-            #         )
-            #
-            #     # Plot 96-step predictions
-            #     plt.plot(
-            #         pred["ds"],
-            #         pred["AutoARIMA"],
-            #         label="96-Step Forecast",
-            #         color="red",
-            #         linestyle="--",
-            #         linewidth=2,
-            #     )
-            #
-            #     # Plot confidence intervals
-            #     if "AutoARIMA-lo-95" in pred.columns and "AutoARIMA-hi-95" in pred.columns:
-            #         plt.fill_between(
-            #             pred["ds"],
-            #             pred["AutoARIMA-lo-95"],
-            #             pred["AutoARIMA-hi-95"],
-            #             alpha=0.3,
-            #             color="red",
-            #             label="95% Confidence Interval",
-            #         )
-            #
-            #     # Add vertical line to separate training and forecast periods
-            #     if not train_df.empty:
-            #         last_train_date = train_df["ds"].iloc[-1]
-            #         plt.axvline(
-            #             x=last_train_date,
-            #             color="black",
-            #             linestyle=":",
-            #             alpha=0.7,
-            #             label="Train/Test Split",
-            #         )
-            #
-            #     plt.title(f"ARIMA Focused Forecast View - {uid}")
-            #     plt.xlabel("Date")
-            #     plt.ylabel("Value")
-            #     plt.legend()
-            #     plt.grid(True, alpha=0.3)
-            #     plt.xticks(rotation=45)
-            #
-            #     # Save the plot
-            #
-            #     filename = self._plot_path / f"arima_focused_96_forecast_{uid}.png"
-            #     plt.savefig(filename, dpi=150, bbox_inches="tight")
-            #     plt.close()
-
-            # for batch_idx, data in enumerate(self._dataloader["test_loader"]):
-            # for batch_idx, data in enumerate(self._dataloader):
-            #     # X (b, t, n, f), label (b, t, n, 1)
-            #     pdb.set_trace()
-            #     X, label = data
-            #     out_batch = self.model(X)
-            #     preds.append(out_batch.cpu())
-            #     labels.append(label.cpu())
 
             preds.append(out_batch.cpu())
             labels.append(label.cpu())
 
+            # Get the preds and labels in the correct format s.t. we can
+            # compare them with the deep learning architecture forecasts
             preds = torch.cat(preds, dim=0)
             labels = torch.cat(labels, dim=0)
+            preds, labels = [
+                preds.reshape(preds.shape[0], self.num_channels, self.pred_len),
+                labels.reshape(labels.shape[0], self.num_channels, self.pred_len),
+            ]
+            preds, labels = [
+                torch.permute(preds, (0, 2, 1)),
+                torch.permute(labels, (0, 2, 1)),
+            ]
 
             mse = self._loss_fn(preds, labels).item()
+            # TODO: add these metrics
             mape = 0.0
             rmse = 0.0
 
@@ -331,14 +162,7 @@ class NixtlaEngine:
             mean_per_day_mse = []
             per_day_preds = []
             per_day_labels = []
-            preds, labels = [
-                preds.reshape(preds.shape[0], self.num_channels, self.pred_len),
-                labels.reshape(labels.shape[0], self.num_channels, self.pred_len),
-            ]
-            preds, labels = [
-                torch.permute(preds, (0, 2, 1)),
-                torch.permute(labels, (0, 2, 1)),
-            ]
+
             for i in range(self.pred_len):
                 mse = self._loss_fn(preds[:, i, :], labels[:, i, :])
                 log = "Horizon {:d}, Test MSE: {:.4f}"
@@ -357,31 +181,12 @@ class NixtlaEngine:
                 self._plot_path,
                 f"mean_per_day_performance_plot.png",
             )
-            mean_branch_plot(
-                preds[:5, :, :],
-                labels[:5, :, :],
-                self._plot_path,
-                f"mean_performance_plot_first_5",
-            )
-            mean_branch_plot(
-                preds[:100, :, :],
-                labels[:100, :, :],
-                self._plot_path,
-                f"mean_performance_plot_first_100",
-            )
             branch_plot(
                 preds[:5, :, :],
                 labels[:5, :, :],
                 var_index,
                 self._plot_path,
                 f"sensor_{var_index}_branch_plot_first_5.png",
-            )
-            branch_plot(
-                preds[:100, :, :],
-                labels[:100, :, :],
-                var_index,
-                self._plot_path,
-                f"sensor_{var_index}_branch_plot_first_100.png",
             )
             return np.mean(mean_per_day_mse)
 

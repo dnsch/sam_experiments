@@ -9,15 +9,15 @@ from torch.utils.data import Dataset
 import torchvision
 import torchvision.transforms as transforms
 
-# DartsDataloader
-from darts import TimeSeries
-
 from pathlib import Path
 import random
 
 
 from typing import Optional, Iterator, Tuple, Dict
 import pdb
+
+# Statsforecast Dataloader
+from src.utils.functions import statsforecast_to_tensor
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -70,6 +70,7 @@ class SamformerDataloader:
         time_increment=1,
         train_ratio=0.7,
         val_ratio=0.2,
+        sequential_comparison=False,
     ):
         file_path = (
             SCRIPT_DIR.parents[2] / "data" / "samformer_datasets" / f"{dataset}.csv"
@@ -100,7 +101,6 @@ class SamformerDataloader:
         self.train_end = train_end
         self.val_end = val_end
         self.test_end = test_end
-        sequential_comparison = True
 
         self.dataloader = self.create_dataloader(
             df_raw,
@@ -109,22 +109,6 @@ class SamformerDataloader:
             test_end,
             sequential_comparison=sequential_comparison,
         )
-        # if sequential_comparison:
-        #     self.dataloader_list = self.create_dataloader(
-        #         df_raw,
-        #         train_end,
-        #         val_end,
-        #         test_end,
-        #         sequential_comparison=sequential_comparison,
-        #     )
-        # else:
-        #     self.dataloader = self.create_dataloader(
-        #         df_raw,
-        #         train_end,
-        #         val_end,
-        #         test_end,
-        #         sequential_comparison=sequential_comparison,
-        #     )
 
     def create_dataloader(
         self,
@@ -148,6 +132,7 @@ class SamformerDataloader:
             dataloaders_list = []
             scalers_list = []
 
+            # TODO: maybe add possibility to not scale data at all here
             for train_data, val_data, test_data in train_val_test_splits:
                 # Create scaler for this split and fit on training data
                 scaler = StandardScaler()
@@ -379,93 +364,6 @@ class SamformerDataloader:
         return splits
 
 
-# class SamformerDataloader:
-#     def __init__(
-#         self,
-#         dataset,
-#         args,
-#         logger,
-#         time_increment=1,
-#         train_ratio=0.7,
-#         val_ratio=0.2,
-#     ):
-#         file_path = (
-#             SCRIPT_DIR.parents[2] / "data" / "samformer_datasets" / f"{dataset}.csv"
-#         )
-#         df_raw = pd.read_csv(file_path, index_col=0)
-#
-#         n = len(df_raw)
-#         seq_len = args.seq_len
-#         pred_len = args.horizon
-#
-#         # train-validation-test split for ETT* datasets
-#         if dataset.startswith("ETTm"):
-#             train_end = 12 * 30 * 24 * 4
-#             val_end = train_end + 4 * 30 * 24 * 4
-#             test_end = val_end + 4 * 30 * 24 * 4
-#         elif dataset.startswith("ETTh"):
-#             train_end = 12 * 30 * 24
-#             val_end = train_end + 4 * 30 * 24
-#             test_end = val_end + 4 * 30 * 24
-#         else:
-#             # train_end = round(train_ratio * n)
-#             # val_end = round(val_ratio * n)
-#             # test_end = n
-#             train_end = int(n * train_ratio)
-#             val_end = n - int(n * val_ratio)
-#             test_end = n
-#         train_df = df_raw[:train_end]
-#         val_df = df_raw[train_end - seq_len : val_end]
-#         # -seq_len, cause that part is used as input
-#         test_df = df_raw[val_end - seq_len : test_end]
-#         # standardize by training set
-#         self.scaler = StandardScaler()
-#         self.scaler.fit(train_df.values)
-#         train_df, val_df, test_df = [
-#             self.scaler.transform(df.values) for df in [train_df, val_df, test_df]
-#         ]
-#
-#         # apply sliding window
-#         x_train, y_train = construct_sliding_window_data(
-#             train_df, seq_len, pred_len, time_increment
-#         )
-#         x_val, y_val = construct_sliding_window_data(
-#             val_df, seq_len, pred_len, time_increment
-#         )
-#         x_test, y_test = construct_sliding_window_data(
-#             test_df, seq_len, pred_len, time_increment
-#         )
-#
-#         # flatten target matrices
-#         flatten = lambda y: y.reshape((y.shape[0], y.shape[1] * y.shape[2]))
-#         y_train, y_val, y_test = flatten(y_train), flatten(y_val), flatten(y_test)
-#         train_dataset = LabeledDataset(x_train, y_train)
-#         val_dataset = LabeledDataset(x_val, y_val)
-#         test_dataset = LabeledDataset(x_test, y_test)
-#         pdb.set_trace()
-#         train_loader = torch.utils.data.DataLoader(
-#             train_dataset, batch_size=args.batch_size, shuffle=True
-#         )
-#         val_loader = torch.utils.data.DataLoader(
-#             val_dataset, batch_size=args.batch_size, shuffle=True
-#         )
-#         test_loader = torch.utils.data.DataLoader(
-#             test_dataset, batch_size=args.batch_size, shuffle=False
-#         )
-#
-#         self.dataloader = {
-#             "train_loader": train_loader,
-#             "val_loader": val_loader,
-#             "test_loader": test_loader,
-#         }
-#
-#     def get_dataloader(self):
-#         return self.dataloader
-#
-#     def get_scaler(self):
-#         return self.scaler
-
-
 class CIFAR10Dataloader:
     def __init__(
         self,
@@ -588,6 +486,7 @@ class StatsforecastDataloader:
         df_raw.index = pd.to_datetime(df_raw.index)
 
         n = len(df_raw)
+        self.data_raw = df_raw
         self.seq_len = args.seq_len
         self.pred_len = args.horizon
         self.args = args
@@ -666,15 +565,30 @@ class StatsforecastDataloader:
                 # # bc. we don't need that as input in the Statsforecast models
                 # test_df_wide = df_raw[val_end:test_end]
 
-                train_test_splits = self.construct_multiple_train_test_split_data(
-                    df_raw,
-                    self.seq_len,
-                    self.pred_len,
-                    splits_num=10,
-                    val_end=val_end,
-                    seed=self.args.seed,
-                )
-                self.dataloader = train_test_splits
+                # Add the scalers s.t. we can have a better comparison with the
+                # other results/forecasts
+                # TODO: change this to parameter
+                scale_data = True
+                if scale_data:
+                    self.dataloader = self.construct_multiple_train_test_split_data(
+                        df_raw,
+                        self.seq_len,
+                        self.pred_len,
+                        splits_num=10,
+                        scale_data=scale_data,
+                        train_end=train_end,
+                        val_end=val_end,
+                        seed=self.args.seed,
+                    )
+                else:
+                    self.dataloader = self.construct_multiple_train_test_split_data(
+                        df_raw,
+                        self.seq_len,
+                        self.pred_len,
+                        splits_num=10,
+                        val_end=val_end,
+                        seed=self.args.seed,
+                    )
 
             #     pass
 
@@ -751,38 +665,10 @@ class StatsforecastDataloader:
             # Concatenate separate train and val
             return pd.concat([self.train_df, self.val_df], ignore_index=True)
 
+    # TODO: delete?
     def get_scaler(self):
         """Get the fitted scaler if scaling was applied."""
         return self.scaler
-
-    def get_unique_ids(self) -> list:
-        """Get list of unique series identifiers."""
-        return self.train_df["unique_id"].unique().tolist()
-
-    # def inverse_transform_predictions(self, predictions: pd.DataFrame) -> pd.DataFrame:
-    #     """
-    #     Inverse transform predictions if scaling was applied.
-    #     """
-    #     if not self.apply_scaling or self.scaler is None:
-    #         return predictions
-    #
-    #     pred_copy = predictions.copy()
-    #
-    #     if "y" in pred_copy.columns:
-    #         # Handle long format predictions
-    #         unique_ids = self.get_unique_ids()
-    #         for i, uid in enumerate(unique_ids):
-    #             mask = pred_copy["unique_id"] == uid
-    #             if mask.any():
-    #                 values = pred_copy.loc[mask, "y"].values.reshape(-1, 1)
-    #                 # Create a temporary array with zeros for other features
-    #                 temp_array = np.zeros((len(values), len(unique_ids)))
-    #                 temp_array[:, i] = values.flatten()
-    #                 # Inverse transform and extract the relevant column
-    #                 inv_transformed = self.scaler.inverse_transform(temp_array)
-    #                 pred_copy.loc[mask, "y"] = inv_transformed[:, i]
-    #
-    #     return pred_copy
 
     def get_data_info(self) -> Dict:
         """Get information about the dataset splits."""
@@ -812,8 +698,74 @@ class StatsforecastDataloader:
 
         return info
 
+    def get_scaler(self):
+        return self.scaler
+
+    def get_scaler_list(self):
+        return self.scalers_list
+
+    # def apply_scaler_to_dataframe(self, df, scaler, value_col="y"):
+    #     """
+    #     Apply scaler transformation to a specific column in the dataframe.
+    #
+    #     Args:
+    #         df: pandas DataFrame
+    #         scaler: fitted sklearn scaler
+    #         value_col: name of the column to transform
+    #
+    #     Returns:
+    #         DataFrame with transformed values
+    #     """
+    #     df_transformed = df.copy()
+    #     num_unique_ids = len(df["unique_id"].unique().tolist())
+    #
+    #     # Extract values, reshape for scaler (needs 2D array)
+    #     values = df[value_col].values.reshape(-1, num_unique_ids)
+    #
+    #     # Apply transformation
+    #     transformed_values = scaler.transform(values)
+    #
+    #     # Put back into dataframe
+    #     df_transformed[value_col] = transformed_values.flatten()
+    #
+    #     return df_transformed
+
+    def apply_scaler_to_dataframe(self, df, scaler, value_col="y"):
+        """
+        Apply scaler transformation and return in long format.
+        """
+        # Pivot to wide format
+        df_wide = df.pivot(index="ds", columns="unique_id", values=value_col)
+
+        # Transform
+        values = df_wide.values
+        transformed_values = scaler.transform(values)
+
+        # Put transformed values back
+        df_wide_transformed = pd.DataFrame(
+            transformed_values, index=df_wide.index, columns=df_wide.columns
+        )
+
+        # Convert back to long format
+        df_long = df_wide_transformed.reset_index().melt(
+            id_vars="ds", var_name="unique_id", value_name=value_col
+        )
+
+        # Sort to match original order
+        df_long = df_long.sort_values(["unique_id", "ds"]).reset_index(drop=True)
+
+        return df_long
+
     def construct_multiple_train_test_split_data(
-        self, data, seq_len, pred_len, splits_num=1, val_end=None, seed=None
+        self,
+        data,
+        seq_len,
+        pred_len,
+        splits_num=1,
+        scale_data=False,
+        train_end=None,
+        val_end=None,
+        seed=None,
     ):
         if seed is not None:
             random.seed(seed)
@@ -834,6 +786,25 @@ class StatsforecastDataloader:
 
         first_train_data = self._wide_to_long(data[:val_end])
         first_test_data = self._wide_to_long(data[val_end : val_end + self.pred_len])
+        # Scale the data and return the scaler if provided
+        if scale_data:
+            self.scalers_list = []
+            scaler_data = self._wide_to_long(data[:train_end])
+            # TODO: that doesn't look so nice, maybe can be written more
+            # elegantly
+            scaler_data = torch.permute(
+                statsforecast_to_tensor(scaler_data, "y", False), (1, 0)
+            )
+            scaler = StandardScaler()
+            scaler.fit(scaler_data)
+            self.scalers_list.append(scaler)
+            # Transform data
+            first_train_data = self.apply_scaler_to_dataframe(
+                first_train_data, scaler, value_col="y"
+            )
+            first_test_data = self.apply_scaler_to_dataframe(
+                first_test_data, scaler, value_col="y"
+            )
 
         first_data_split = [first_train_data, first_test_data]
         splits.append(first_data_split)
@@ -862,367 +833,39 @@ class StatsforecastDataloader:
             # Create splits using the pre-generated val_ends
             # val_ends mark the end of the training set
             for random_val_end in random_val_ends:
+                if scale_data:
+                    # TODO: hard coded train ratio, maybe change this to a parameter
+                    # we take 80% of the training set for training the model
+                    # the other 20% of that set for validating it and selecting the
+                    # best one.
+                    train_ratio = 0.8
+                    train_end = int(random_val_end * train_ratio)
+                    scaler_data = self._wide_to_long(data[:train_end])
+                    scaler_data = torch.permute(
+                        statsforecast_to_tensor(scaler_data, "y", False), (1, 0)
+                    )
+                    scaler = StandardScaler()
+                    scaler.fit(scaler_data)
+                    self.scalers_list.append(scaler)
+
                 train_data = self._wide_to_long(data[:random_val_end])
                 test_data = self._wide_to_long(
                     data[random_val_end : random_val_end + pred_len]
                 )
+
+                if scale_data:
+                    # Transform data
+                    train_data = self.apply_scaler_to_dataframe(
+                        train_data, scaler, value_col="y"
+                    )
+                    test_data = self.apply_scaler_to_dataframe(
+                        test_data, scaler, value_col="y"
+                    )
                 splits.append([train_data, test_data])
+        if scale_data:
+            self.scaler = self.scalers_list[0]
 
         return splits
-
-    # def construct_multiple_train_test_split_data(data, seq_len, pred_len, time_increment=1, splits_num, val_end, test_end):
-    #     splits = []
-    #     # First Train/Test split should correspond to the original samformer
-    #     # Train/Val/Test split
-    #
-    #     first_statsfcst_train_data = data[: val_end + self.seq_len]
-    #     first_statsfcst_test_data = data[val_end:test_end]
-    #
-    #     first_statsfcst_data_split = [first_statsfcst_train_data,
-    #                                   first_statsfcst_test_data]
-    #
-    #     for split in (splits_num-1):
-    #         a
-    #
-    #
-    #
-    #     n_samples = data.shape[0] - (seq_len - 1) - pred_len
-    #     range_ = np.arange(0, n_samples, time_increment)
-    #     x, y = list(), list()
-    #     for i in range_:
-    #         x.append(data[i : (i + seq_len)].T)
-    #         y.append(data[(i + seq_len) : (i + seq_len + pred_len)].T)
-    #     return np.array(x), np.array(y)
-    #
-    #
-
-
-# Add these imports if not present
-from typing import Iterator, Dict, Optional, Tuple
-
-
-class DartsDataloader:
-    def __init__(
-        self,
-        dataset,
-        args,
-        logger,
-        time_increment=1,
-        train_ratio=0.7,
-        val_ratio=0.2,
-    ):
-        self.dataset = dataset
-        self.args = args
-        self.logger = logger
-
-        file_path = (
-            SCRIPT_DIR.parents[2] / "data" / "samformer_datasets" / f"{dataset}.csv"
-        )
-        df_raw = pd.read_csv(file_path, index_col=0)
-
-        n = len(df_raw)
-        seq_len = args.seq_len
-        pred_len = args.horizon
-        self.seq_len = seq_len
-        self.pred_len = pred_len
-
-        # train-validation-test split for ETT* datasets
-        if dataset.startswith("ETTm"):
-            train_end = 12 * 30 * 24 * 4
-            val_end = train_end + 4 * 30 * 24 * 4
-            test_end = val_end + 4 * 30 * 24 * 4
-        elif dataset.startswith("ETTh"):
-            train_end = 12 * 30 * 24
-            val_end = train_end + 4 * 30 * 24
-            test_end = val_end + 4 * 30 * 24
-        else:
-            train_end = int(n * train_ratio)
-            val_end = n - int(n * val_ratio)
-            test_end = n
-
-        # Store for rolling windows
-        self.df_raw = df_raw
-        self.train_end = train_end
-        self.val_end = val_end
-        self.test_end = test_end
-
-        train_df = df_raw[:train_end]
-        val_df = df_raw[train_end:val_end]
-        test_df = df_raw[val_end:test_end]
-        feature_names = (
-            df_raw.columns.tolist()
-            if df_raw.columns is not None
-            else [f"feature_{i}" for i in range(df_raw.shape[1])]
-        )
-        self.feature_names = feature_names
-
-        # sliding window data for direct comparison on test
-        val_df_sw = df_raw[train_end - seq_len : val_end]
-        test_df_sw = df_raw[val_end - seq_len : test_end]
-        x_test_sw, y_test_sw = construct_sliding_window_data(
-            test_df_sw.values, seq_len, pred_len, time_increment
-        )
-        test_dataset_sw = LabeledDataset(x_test_sw, y_test_sw)
-        test_loader_sw = torch.utils.data.DataLoader(
-            test_dataset_sw, batch_size=1, shuffle=False
-        )
-        self.sw_dataloader = {
-            "feature_names": feature_names,
-            "test_loader": test_loader_sw,
-        }
-
-        # TimeSeries objects (multivariate)
-        self.train_series = TimeSeries.from_values(
-            train_df.values, columns=feature_names
-        )
-        self.val_series = TimeSeries.from_values(val_df.values, columns=feature_names)
-        self.test_series = TimeSeries.from_values(test_df.values, columns=feature_names)
-
-        self.dataloader = {
-            "train_loader": self.train_series,
-            "val_loader": self.val_series,
-            "test_loader": self.test_series,
-        }
-
-        # Log infos
-        self.logger.info(f"Dataset: {dataset}")
-        self.logger.info(f"Total length: {n}")
-        self.logger.info(f"Train: {len(self.train_series)} ({train_end})")
-        self.logger.info(f"Val: {len(self.val_series)} ({val_end - train_end})")
-        self.logger.info(f"Test: {len(self.test_series)} ({test_end - val_end})")
-        self.logger.info(f"Features: {len(feature_names)} - {feature_names}")
-
-    def get_dataloader(self):
-        return self.dataloader
-
-    def get_sliding_window_dataloader(self):
-        """Return sliding-window test loader (stride = constructor time_increment)"""
-        return self.sw_dataloader
-
-    def get_timeseries(self):
-        """Return train, val, test TimeSeries objects"""
-        return self.train_series, self.val_series, self.test_series
-
-    def get_combined_series(self, splits=["train", "val", "test"]):
-        """Get combined TimeSeries for different combinations of splits"""
-        series_list = []
-        if "train" in splits:
-            series_list.append(self.train_series)
-        if "val" in splits:
-            series_list.append(self.val_series)
-        if "test" in splits:
-            series_list.append(self.test_series)
-        if len(series_list) == 1:
-            return series_list[0]
-        combined = series_list[0]
-        for series in series_list[1:]:
-            combined = combined.append(series)
-        return combined
-
-    def get_sliding_window_dataset(
-        self, split: str = "test", stride: Optional[int] = None
-    ) -> torch.utils.data.DataLoader:
-        """
-        Build sliding-window LabeledDataset/DataLoader (unscaled) for a given split.
-        x: (n_windows, D, seq_len), y: (n_windows, D, pred_len)
-        """
-        assert split in {"train", "val", "test"}
-        stride = stride if stride is not None else 1
-        s, e = None, None
-        if split == "train":
-            s, e = 0, self.train_end
-        elif split == "val":
-            s, e = self.train_end - self.seq_len, self.val_end
-        else:
-            s, e = self.val_end - self.seq_len, self.test_end
-
-        seg = self.df_raw.iloc[s:e].values
-        x, y = construct_sliding_window_data(seg, self.seq_len, self.pred_len, stride)
-        ds = LabeledDataset(x, y)  # unflattened y for convenience
-        return torch.utils.data.DataLoader(ds, batch_size=1, shuffle=False)
-
-    def rolling_eval_iterator(
-        self,
-        step: Optional[int] = None,
-        merge_val_into_train: bool = True,
-        expand_train: bool = True,
-    ) -> Iterator[Dict[str, object]]:
-        """
-        Yields rolling/evolving splits for ARIMA:
-          - train_series_k: TimeSeries from start to current cutoff
-          - x_window: np.ndarray (D, seq_len)
-          - y_window: np.ndarray (D, pred_len)
-
-        Windows start at (val_end - seq_len) and move forward by 'step'.
-        At step k, training end is:
-          - val_end at k=0 if merge_val_into_train else train_end
-          - in_start (expanding) for k>0 if expand_train
-        """
-        step = step if step is not None else self.seq_len
-
-        # Define first input window start
-        in_start0 = self.val_end - self.seq_len
-        k = 0
-        while True:
-            in_start = in_start0 + k * step
-            in_end = in_start + self.seq_len
-            out_end = in_end + self.pred_len
-            if out_end > self.test_end:
-                break
-
-            if k == 0:
-                train_end_k = self.val_end if merge_val_into_train else self.train_end
-            else:
-                train_end_k = (
-                    in_start
-                    if expand_train
-                    else (self.val_end if merge_val_into_train else self.train_end)
-                )
-
-            train_series_k = TimeSeries.from_values(
-                self.df_raw.iloc[:train_end_k].values, columns=self.feature_names
-            )
-            x_window = self.df_raw.iloc[in_start:in_end].values.T  # (D, seq_len)
-            y_window = self.df_raw.iloc[in_end:out_end].values.T  # (D, pred_len)
-
-            yield {
-                "k": k,
-                "train_series": train_series_k,
-                "x": x_window,
-                "y": y_window,
-                "in_start": in_start,
-                "in_end": in_end,
-                "out_end": out_end,
-            }
-            k += 1
-
-
-# class DartsDataloader:
-#     def __init__(
-#         self,
-#         dataset,
-#         args,
-#         logger,
-#         time_increment=1,
-#         train_ratio=0.7,
-#         val_ratio=0.2,
-#     ):
-#         self.dataset = dataset
-#         self.args = args
-#         self.logger = logger
-#
-#         file_path = (
-#             SCRIPT_DIR.parents[2] / "data" / "samformer_datasets" / f"{dataset}.csv"
-#         )
-#         df_raw = pd.read_csv(file_path, index_col=0)
-#
-#         n = len(df_raw)
-#         seq_len = args.seq_len
-#         pred_len = args.horizon
-#
-#         # train-validation-test split for ETT* datasets
-#         if dataset.startswith("ETTm"):
-#             train_end = 12 * 30 * 24 * 4
-#             val_end = train_end + 4 * 30 * 24 * 4
-#             test_end = val_end + 4 * 30 * 24 * 4
-#         elif dataset.startswith("ETTh"):
-#             train_end = 12 * 30 * 24
-#             val_end = train_end + 4 * 30 * 24
-#             test_end = val_end + 4 * 30 * 24
-#         else:
-#             train_end = int(n * train_ratio)
-#             val_end = n - int(n * val_ratio)
-#             test_end = n
-#
-#         train_df = df_raw[:train_end]
-#         val_df = df_raw[train_end:val_end]
-#         test_df = df_raw[val_end:test_end]
-#         feature_names = (
-#             df_raw.columns.tolist()
-#             if df_raw.columns is not None
-#             else [f"feature_{i}" for i in range(df_raw.shape[1])]
-#         )
-#         # sliding window data for direct comparison
-#         val_df_sw = df_raw[train_end - seq_len : val_end]
-#         test_df_sw = df_raw[val_end - seq_len : test_end]
-#         x_test_sw, y_test_sw = construct_sliding_window_data(
-#             test_df_sw, seq_len, pred_len, time_increment
-#         )
-#         test_dataset_sw = LabeledDataset(x_test_sw, y_test_sw)
-#         test_loader_sw = torch.utils.data.DataLoader(
-#             test_dataset_sw, batch_size=1, shuffle=False
-#         )
-#         self.sw_dataloader = {
-#             "feature_names": feature_names,
-#             "test_loader": test_loader_sw,
-#         }
-#
-#         self.train_series = TimeSeries.from_values(
-#             train_df.values, columns=feature_names
-#         )
-#
-#         self.val_series = TimeSeries.from_values(val_df.values, columns=feature_names)
-#
-#         self.test_series = TimeSeries.from_values(test_df.values, columns=feature_names)
-#
-#         self.dataloader = {
-#             "train_loader": self.train_series,
-#             "val_loader": self.val_series,
-#             "test_loader": self.test_series,
-#         }
-#         train_df = df_raw[:train_end]
-#         val_df = df_raw[train_end:val_end]
-#         test_df = df_raw[val_end:test_end]
-#         feature_names = (
-#             df_raw.columns.tolist()
-#             if df_raw.columns is not None
-#             else [f"feature_{i}" for i in range(df_raw.shape[1])]
-#         )
-#         # self.train_series = TimeSeries.from_values(
-#         #     train_df.values, columns=feature_names
-#         # )
-#         #
-#         # self.val_series = TimeSeries.from_values(val_df.values, columns=feature_names)
-#         #
-#         # self.test_series = TimeSeries.from_values(test_df.values, columns=feature_names)
-#
-#         # Log infos
-#         self.logger.info(f"Dataset: {dataset}")
-#         self.logger.info(f"Total length: {n}")
-#         self.logger.info(f"Train: {len(self.train_series)} ({train_end})")
-#         self.logger.info(f"Val: {len(self.val_series)} ({val_end - train_end})")
-#         self.logger.info(f"Test: {len(self.test_series)} ({test_end - val_end})")
-#         self.logger.info(f"Features: {len(feature_names)} - {feature_names}")
-#
-#     def get_dataloader(self):
-#         return self.dataloader
-#
-#     def get_sliding_window_dataloader(self):
-#         """Return train, val, test TimeSeries objects"""
-#         return self.sw_dataloader
-#
-#     def get_timeseries(self):
-#         """Return train, val, test TimeSeries objects"""
-#         return self.train_series, self.val_series, self.test_series
-#
-#     def get_combined_series(self, splits=["train", "val", "test"]):
-#         """Get combined TimeSeries for different combinations of splits"""
-#         series_list = []
-#         if "train" in splits:
-#             series_list.append(self.train_series)
-#         if "val" in splits:
-#             series_list.append(self.val_series)
-#         if "test" in splits:
-#             series_list.append(self.test_series)
-#
-#         if len(series_list) == 1:
-#             return series_list[0]
-#
-#         combined = series_list[0]
-#         for series in series_list[1:]:
-#             combined = combined.append(series)
-#
-#         return combined
 
 
 if __name__ == "__main__":

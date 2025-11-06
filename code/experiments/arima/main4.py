@@ -12,7 +12,6 @@ sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "loss_landscape"))
 
 from src.utils.args import get_public_config
 
-# from src.engines.arima_engine import ARIMA_Engine
 from src.base.nixtla_engine import NixtlaEngine
 from src.utils.dataloader import StatsforecastDataloader
 from src.utils.logging import get_logger
@@ -22,14 +21,8 @@ import torch
 import pandas as pd
 import time
 
-# from darts.models import AutoARIMA
 from statsforecast import StatsForecast
 from statsforecast.models import AutoARIMA
-
-# from darts import TimeSeries
-# from darts.models import ARIMA, AutoARIMA
-# from darts.metrics import mse, rmse, mae, mape
-# from darts.utils.utils import ModelMode
 
 import pdb
 import multiprocessing
@@ -114,7 +107,9 @@ def get_config():
     return args, log_dir, logger
 
 
-def run_experiments_on_data_list(data_list, args, logger, log_dir):
+def run_experiments_on_data_list(
+    data_list, scaler_list=None, args=None, logger=None, log_dir=None
+):
     """
     Execute training for each data entry in data_list using StatsForecast/AutoARIMA.
 
@@ -168,9 +163,13 @@ def run_experiments_on_data_list(data_list, args, logger, log_dir):
         experiment_log_dir = log_dir / f"experiment_{idx}"
 
         # Create the engine
+        # TODO: scaler None here, that means we can't scale the data back
+        # but as we compare it to other scaled data and preds anyway, maybe
+        # this option is not needed
         engine = NixtlaEngine(
             model=sf,
             dataloader=data,
+            scaler=None,
             pred_len=args.horizon,
             loss_fn=loss_fn,
             backend="statsforecast",
@@ -200,13 +199,21 @@ def main():
     # The statsforecast models work a bit different from the others,
     # first, we load a dedicated dataloader instance
     dataloader_instance = StatsforecastDataloader(
-        dataset="ETTh1",
+        dataset=dataset_name,
         args=args,
         logger=logger,
         merge_train_val=True,  # Merge train and val
     )
     data = dataloader_instance.get_dataloader()
     # Execute all experiments
+
+    # results = run_experiments_on_data_list(
+    #     data_list=data,
+    #     scaler_list=scaler_list,
+    #     args=args,
+    #     logger=logger,
+    #     log_dir=log_dir,
+    # )
     results = run_experiments_on_data_list(
         data_list=data, args=args, logger=logger, log_dir=log_dir
     )
