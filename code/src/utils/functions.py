@@ -13,10 +13,55 @@ import sys
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.append(str(SCRIPT_DIR.parents[2]))
+sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "pyhessian"))
+
+sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "loss_landscape"))
 from lib.utils.loss_landscape.net_plotter import name_direction_file
 from lib.utils.pyhessian.pyhessian import hessian
 
 
+# Randomness
+def set_seed(seed):
+    """
+    Sets the seed for all frameworks randomness and reproducibiliy.
+    """
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = False
+    torch.backends.cudnn.benchmark = False
+
+
+# Samformer Functions
+def load_optimizer(model, args, logger):
+    """
+    Loads the optimizer based on the choice provided in args.
+    """
+    try:
+        optimizer_class = getattr(torch.optim, args.optimizer)
+
+        if not args.no_sam:
+            if args.gsam:
+                logger.info(f"Optimizer class: {optimizer_class}")
+                optimizer = optimizer_class(
+                    model.parameters(), lr=args.lrate, weight_decay=args.wdecay
+                )
+                logger.info(optimizer)
+                return optimizer
+            else:
+                logger.info(f"Optimizer class: {optimizer_class}")
+                return optimizer_class
+
+        optimizer = optimizer_class(
+            model.parameters(), lr=args.lrate, weight_decay=args.wdecay
+        )
+        logger.info(optimizer)
+        return optimizer
+    except AttributeError:
+        raise ValueError(f"Optimizer '{args.optimizer}' not found in torch.optim.")
+
+
+# Plotting functions
 def plot_train_val_loss(total_train_loss, loss, loss_string, epochs, plot_path):
     plot_dir = Path(plot_path)
     plot_dir.mkdir(parents=True, exist_ok=True)
@@ -343,6 +388,166 @@ def plot_mean_per_day(mean_per_day_preds, mean_per_day_labels, plot_path, title)
 
 
 # StatsForecast functions
+from statsforecast import StatsForecast
+from statsforecast.models import AutoARIMA
+from statsforecast.models import AutoMFLES
+import warnings
+
+
+def _get_param_with_warning(args, param_name, default_value, arg_name=None):
+    """
+    Extract parameter from args or use default with warning.
+
+    Args:
+        args: Argument object containing model_name and parameters
+        param_name: Parameter name for the model
+        default_value: Default value if parameter not in args
+        arg_name: Attribute name in args if different from param_name
+
+    Returns:
+        Parameter value from args or default
+
+    Warns:
+        UserWarning: If parameter not found in args, indicating which
+            default value is being used
+    """
+    arg_name = arg_name or param_name
+
+    if hasattr(args, arg_name):
+        return getattr(args, arg_name)
+    else:
+        warnings.warn(
+            f"[{args.model_name.upper()}] Parameter '{arg_name}' not found in args. "
+            f"Using default value: {default_value}",
+            UserWarning,
+        )
+        return default_value
+
+
+def get_nixtla_model(args):
+    """
+    Create Nixtla StatsForecast model from arguments.
+
+    Parameters not found in args will use model defaults, raising a warning
+    that specifies which defaults were applied.
+
+    Args:
+        args: Argument object with 'model_name' and model-specific parameters
+
+    Returns:
+        Initialized Nixtla model instance
+
+    Raises:
+        ValueError: If args.model_name is not supported
+    """
+    model_name_lower = args.model_name.lower()
+
+    if model_name_lower == "arima":
+        # Extract parameters with defaults and warnings
+        seasonal_periods = _get_param_with_warning(
+            args, "season_length", 24, "seasonal_periods"
+        )
+        max_p = _get_param_with_warning(args, "max_p", 3)
+        max_q = _get_param_with_warning(args, "max_q", 3)
+        max_P = _get_param_with_warning(args, "max_P", 2)
+        max_Q = _get_param_with_warning(args, "max_Q", 2)
+        max_d = _get_param_with_warning(args, "max_d", 2)
+        max_D = _get_param_with_warning(args, "max_D", 1)
+        seasonal = _get_param_with_warning(args, "seasonal", True)
+        auto_arima = _get_param_with_warning(args, "auto_arima", True)
+
+        # Handle d and D based on auto_arima
+        if auto_arima:
+            d_val = None
+            D_val = None
+        else:
+            d_val = _get_param_with_warning(args, "d", 1)
+            D_val = _get_param_with_warning(args, "D", 1)
+
+        model = AutoARIMA(
+            season_length=seasonal_periods,
+            max_p=max_p,
+            max_q=max_q,
+            max_P=max_P,
+            max_Q=max_Q,
+            max_d=max_d,
+            max_D=max_D,
+            d=d_val,
+            D=D_val,
+            stepwise=True,
+            approximation=True,
+            seasonal=seasonal,
+            ic="aic",
+        )
+
+    elif model_name_lower == "mfles":
+        # Extract parameters with defaults and warnings
+        season_length = _get_param_with_warning(args, "season_length", 24)
+
+        # Handle season_length as list
+        if isinstance(season_length, list):
+            if len(season_length) == 0:
+                season_length = None
+            elif len(season_length) == 1:
+                season_length = season_length[0]
+
+        # Use horizon as test_size if available, otherwise default
+        if hasattr(args, "horizon"):
+            test_size = args.horizon
+        else:
+            test_size = _get_param_with_warning(args, "test_size", 96)
+
+        n_windows = _get_param_with_warning(args, "n_windows", 2)
+        metric = _get_param_with_warning(args, "metric", "smape")
+        verbose = _get_param_with_warning(args, "verbose", False)
+        prediction_intervals = _get_param_with_warning(
+            args, "prediction_intervals", None
+        )
+
+        import pdb
+
+        pdb.set_trace()
+        model = AutoMFLES(
+            test_size=test_size,
+            season_length=season_length,
+            n_windows=n_windows,
+            metric=metric,
+            verbose=verbose,
+            prediction_intervals=prediction_intervals,
+        )
+
+    else:
+        raise ValueError(
+            f"Unknown model: '{args.model_name}'. Supported models: 'arima', 'mfles'"
+        )
+
+    return model
+
+
+def get_statsforecast_model(args, freq="H"):
+    """
+    Create StatsForecast instance with configured model.
+
+    Args:
+        args: Argument object with model configuration
+        freq: Time series frequency (default: 'H' for hourly)
+
+    Returns:
+        StatsForecast instance with the configured model
+    """
+
+    model = get_nixtla_model(args)
+    n_cores = _get_param_with_warning(args, "n_cores", -1)
+
+    sf = StatsForecast(
+        models=[model],
+        freq=freq,
+        n_jobs=n_cores,
+    )
+
+    return sf
+
+
 def statsforecast_to_tensor(df, variable_name, flatten=False):
     """
     Convert statsforecast format DataFrame to PyTorch tensor.
@@ -375,6 +580,7 @@ def statsforecast_to_tensor(df, variable_name, flatten=False):
         return tensor_data.reshape(n_series, n_timesteps)
 
 
+# TODO: delete?
 def tensor_to_sliding_windows(tensor, seq_len, pred_len=0, time_increment=1):
     """
     Convert flattened tensor to sliding window format.

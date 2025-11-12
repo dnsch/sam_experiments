@@ -4,7 +4,7 @@ import torch
 import numpy as np
 
 from src.utils.metrics import masked_mape, masked_rmse, compute_all_metrics
-from src.utils.functions import statsforecast_to_tensor, tensor_to_sliding_windows
+from src.utils.functions import statsforecast_to_tensor
 from tqdm import tqdm
 from src.utils.functions import (
     branch_plot,
@@ -129,9 +129,17 @@ class NixtlaEngine:
             labels = []
             test_data = self._dataloader[1]
             # # Generate predictions for 96 steps ahead
-            predictions = self.model.predict(h=self.pred_len, level=[95])
+            predictions = self.model.predict(h=self.pred_len)
             # We only take the AutoARIMA values and not the confidence intervals
-            out_batch = statsforecast_to_tensor(predictions, "AutoARIMA", True)
+            import pdb
+
+            # out_batch = statsforecast_to_tensor(predictions, "AutoARIMA", True)
+            # out_batch = statsforecast_to_tensor(predictions, "SeasESOpt", True)
+            # out_batch = statsforecast_to_tensor(predictions, "HistoricAverage", True)
+            # out_batch = statsforecast_to_tensor(predictions, "Naive", True)
+            # out_batch = statsforecast_to_tensor(predictions, "SeasonalNaive", True)
+            # out_batch = statsforecast_to_tensor(predictions, "AutoTBATS", True)
+            out_batch = statsforecast_to_tensor(predictions, "AutoMFLES", True)
 
             label = statsforecast_to_tensor(test_data, "y", True)
 

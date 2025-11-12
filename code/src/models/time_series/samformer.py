@@ -26,6 +26,8 @@ class SAMFormerArchitecture(BaseModel):
 
     def forward(self, x, flatten_output=True):
         # RevIN Normalization
+        import pdb
+
         if self.use_revin:
             x_norm = self.revin(x.transpose(1, 2), mode="norm").transpose(
                 1, 2

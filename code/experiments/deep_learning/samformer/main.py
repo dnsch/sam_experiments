@@ -1,8 +1,6 @@
 import sys
 from pathlib import Path
 
-from torch.utils import data
-
 SCRIPT_DIR = Path(__file__).resolve().parent
 # TODO: change paths here, don't need all of em
 sys.path.append(str(SCRIPT_DIR.parents[1]))
@@ -12,26 +10,23 @@ sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "loss_landscape"))
 
 from src.models.time_series.samformer import SAMFormerArchitecture
 from src.engines.samformer_engine import SAMFormer_Engine
-from src.utils.args import get_public_config
+from src.utils.args import get_samformer_config
 from src.utils.dataloader import (
     SamformerDataloader,
 )
 from src.utils.logging import get_logger
 from src.utils.samformer_utils.sam import SAM
+
 from src.utils.functions import (
+    set_seed,
+    load_optimizer,
+    compute_top_eigenvalue_and_eigenvector,
     compute_dominant_hessian_directions,
     save_eigenvectors_to_hdf5,
 )
 
-from src.utils.functions import compute_top_eigenvalue_and_eigenvector
-
-import numpy as np
 import torch
-import pdb
-import copy
 
-
-import matplotlib.pyplot as plt
 
 torch.set_num_threads(3)
 from lib.utils.pyhessian.density_plot import get_esd_plot
@@ -39,51 +34,12 @@ from lib.optimizers.gsam.gsam.gsam import GSAM
 from lib.optimizers.gsam.gsam.scheduler import LinearScheduler
 
 
-def set_seed(seed):
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = False
-    torch.backends.cudnn.benchmark = False
-
-
 def get_config():
-    parser = get_public_config()
-
-    # Optimizer
-    parser.add_argument(
-        "--optimizer",
-        type=str,
-        default="Adam",
-        help="Optimizer to use (e.g., Adam, SGD, Adagrad). Use same case as class names in torch.optim",
-    )
-    # Hyperparameters
-    parser.add_argument("--batch_size", type=int, default=256)
-    parser.add_argument("--lrate", type=float, default=1e-3)
-    parser.add_argument("--wdecay", type=float, default=1e-5)
-    parser.add_argument("--clip_grad_value", type=float, default=0)
-    # SAMFormer hyperparameters
-    parser.add_argument("--rho", type=float, default=0.5)
-    parser.add_argument("--use_revin", type=bool, default=True)
-    parser.add_argument("--num_channels", type=int, default=True)
-    parser.add_argument("--hid_dim", type=int, default=16)
-    parser.add_argument(
-        "--no_sam", action="store_true", help="don't use Sharpness Awarae Minimization"
-    )
-    parser.add_argument("--gsam", action="store_true", help="use gsam")
-    parser.add_argument("--gsam_alpha", type=float, default=0.5)
-    parser.add_argument("--gsam_rho_max", type=float, default=0.5)
-    parser.add_argument("--gsam_rho_min", type=float, default=0.1)
-    parser.add_argument(
-        "--gsam_adaptive", action="store_true", help="use adaptive gsam"
-    )
-
+    parser = get_samformer_config()
     args = parser.parse_args()
 
-    if args.model_name == "":
-        args.model_name = "samformer"
-    if args.dataset == "":
-        args.dataset = "ETTh1"
+    args.model_name = "samformer"
+
     base_dir = SCRIPT_DIR.parents[2] / "results"
 
     # Logger
@@ -114,31 +70,6 @@ def get_config():
     logger.info(args)
 
     return args, log_dir, logger
-
-
-def load_optimizer(model, args, logger):
-    try:
-        optimizer_class = getattr(torch.optim, args.optimizer)
-
-        if not args.no_sam:
-            if args.gsam:
-                logger.info(f"Optimizer class: {optimizer_class}")
-                optimizer = optimizer_class(
-                    model.parameters(), lr=args.lrate, weight_decay=args.wdecay
-                )
-                logger.info(optimizer)
-                return optimizer
-            else:
-                logger.info(f"Optimizer class: {optimizer_class}")
-                return optimizer_class
-
-        optimizer = optimizer_class(
-            model.parameters(), lr=args.lrate, weight_decay=args.wdecay
-        )
-        logger.info(optimizer)
-        return optimizer
-    except AttributeError:
-        raise ValueError(f"Optimizer '{args.optimizer}' not found in torch.optim.")
 
 
 def run_experiments_on_dataloader_list(
@@ -195,7 +126,7 @@ def run_experiments_on_dataloader_list(
             lrate=args.lrate,
             optimizer=optimizer,
             scheduler=lr_scheduler,
-            clip_grad_value=0,
+            clip_grad_value=args.clip_grad_value,
             max_epochs=args.max_epochs,
             patience=args.patience,
             log_dir=experiment_log_dir,
@@ -232,7 +163,7 @@ def main():
     dataset_name = args.dataset
     time_increment = 1
     # TODO: add this as parameter
-    sequential_comparison = True
+    sequential_comparison = False
     dataloader_instance = SamformerDataloader(
         dataset_name,
         args,
@@ -269,6 +200,10 @@ def main():
         )
 
     optimizer = load_optimizer(model, args, logger)
+    # TODO: add option to choose lr_scheduler
+    # also lr_scheduler=None option
+    from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts
+
     lr_scheduler = None
     if not args.no_sam:
         if args.gsam:
@@ -292,13 +227,35 @@ def main():
                 adaptive=args.gsam_adaptive,
             )
         else:
+            base_optimizer_class = getattr(torch.optim, args.optimizer)
+            # base_optimizer = base_optimizer_class(
+            #     model.parameters(), lr=args.lrate, weight_decay=args.wdecay
+            # )
+
+            # lr_scheduler = CosineAnnealingWarmRestarts(
+            #     optimizer=base_optimizer,  # Use base optimizer
+            #     T_0=5,
+            #     T_mult=1,
+            #     eta_min=1e-5,
+            #     last_epoch=-1,
+            # )
             optimizer = SAM(
                 params=model.parameters(),
-                base_optimizer=optimizer,
+                base_optimizer=base_optimizer_class,
                 rho=args.rho,
                 lr=args.lrate,
                 weight_decay=args.wdecay,
             )
+            lr_scheduler = CosineAnnealingWarmRestarts(
+                optimizer=optimizer,
+                T_0=5,  # Restart every 5 epochs (like max_epochs=5 in your example)
+                T_mult=1,  # Keep the same cycle length
+                eta_min=1e-6,  # Minimum learning rate
+                last_epoch=-1,
+            )
+            # lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            #     optimizer.base_optimizer, T_max=args.max_epochs, eta_min=1e-6
+            # )
 
     loss_fn = torch.nn.MSELoss()
     if sequential_comparison:
@@ -331,7 +288,7 @@ def main():
             lrate=args.lrate,
             optimizer=optimizer,
             scheduler=lr_scheduler,
-            clip_grad_value=0,
+            clip_grad_value=args.clip_grad_value,
             # clip_grad_value=4,
             max_epochs=args.max_epochs,
             patience=args.patience,
