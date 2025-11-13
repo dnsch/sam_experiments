@@ -3,10 +3,10 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 # TODO: change paths here, don't need all of em
-sys.path.append(str(SCRIPT_DIR.parents[1]))
-sys.path.append(str(SCRIPT_DIR.parents[2]))
+sys.path.append(str(SCRIPT_DIR.parents[4]))
+sys.path.append(str(SCRIPT_DIR.parents[5]))
 
-from src.utils.args import get_public_config
+from src.utils.args import get_auto_tbats_config
 
 from src.base.nixtla_engine import NixtlaEngine
 from src.utils.dataloader import StatsforecastDataloader
@@ -18,7 +18,7 @@ import pandas as pd
 import time
 
 from statsforecast import StatsForecast
-from statsforecast.models import AutoMFLES
+from statsforecast.models import AutoTBATS
 
 import pdb
 import multiprocessing
@@ -35,58 +35,18 @@ def set_seed(seed):
 
 
 def get_config():
-    parser = get_public_config()
+    parser = get_auto_tbats_config()
 
-    # StatsForecast specific parameters
-    parser.add_argument(
-        "--n_cores", type=int, default=8, help="Number of cores for parallel processing"
-    )
-
-    # MFLES specific parameters
-
-    parser.add_argument(
-        "--season_length",
-        type=int,
-        nargs="*",  # Use '*' to allow empty list (for None behavior)
-        default=24,
-        help="Seasonal period(s). For hourly data: 24=daily, 168=weekly. If not specified, automatically determined",
-    )
-    parser.add_argument(
-        "--n_windows",
-        type=int,
-        default=2,
-        help="Number of windows for cross-validation",
-    )
-    parser.add_argument(
-        "--step_size",
-        type=int,
-        default=None,
-        help="Step size for rolling window validation. If None, equals test_size",
-    )
-    parser.add_argument(
-        "--metric",
-        type=str,
-        default="smape",
-        choices=["smape", "mase", "rmse", "mae", "mape"],
-        help="Metric for model selection",
-    )
-    parser.add_argument(
-        "--verbose",
-        type=bool,
-        default=False,
-        help="Print detailed information during fitting",
-    )
-    parser.add_argument(
-        "--alias", type=str, default="AutoMFLES", help="Model alias name"
-    )
     args = parser.parse_args()
 
-    if args.model_name == "":
-        args.model_name = "mfles"
-    if args.dataset == "":
+    args.model_name = "autotbats"
+    # Define loss function
+    args.loss_fn = get_loss_function(args.loss_name)
+
+    if not hasattr(args, "dataset") or args.dataset == "":
         args.dataset = "ETTh1"
 
-    base_dir = SCRIPT_DIR.parents[2] / "results"
+    base_dir = SCRIPT_DIR.parents[5] / "results"
 
     log_dir = "{}/{}/{}/seq_len_{}_pred_len_{}/".format(
         base_dir,
@@ -134,27 +94,23 @@ def run_experiments_on_data_list(
         # Create the AutoTBATS model
 
         # TODO: change parameter values to ones from args
-        sf_mfles_model = AutoMFLES(
-            test_size=96,  # Required: validation set size
-            season_length=24,
-            n_windows=2,  # Number of cross-validation windows
-            metric="smape",  # Model selection metric
-            verbose=False,
-            prediction_intervals=None,  # Can be configured separately if needed
+        sf_tbats_model = AutoTBATS(
+            season_length=args.season_length,
+            use_boxcox=args.use_boxcox,
+            bc_lower_bound=args.bc_lower_bound,
+            bc_upper_bound=args.bc_upper_bound,
+            use_trend=args.use_trend,
+            use_damped_trend=args.use_damped_trend,
+            use_arma_errors=args.use_arma_errors,
+            alias=args.alias,
         )
+
         # Create StatsForecast instance with the model
         sf = StatsForecast(
-            models=[sf_mfles_model],
-            freq="H",
-            n_jobs=-1,
+            models=[sf_tbats_model],
+            freq=args.freq,
+            n_jobs=args.n_jobs,
         )
-        from src.utils.functions import get_statsforecast_model
-
-        model = get_statsforecast_model(args)
-        pdb.set_trace()
-
-        # Define loss function
-        loss_fn = torch.nn.MSELoss()
 
         # Create experiment-specific log directory
         # experiment_log_dir = f"{log_dir}/experiment_{idx}"
@@ -165,16 +121,17 @@ def run_experiments_on_data_list(
         # but as we compare it to other scaled data and preds anyway, maybe
         # this option is not needed
         engine = NixtlaEngine(
-            model=model,
+            model=sf,
             dataloader=data,
             scaler=None,
             pred_len=args.horizon,
-            loss_fn=loss_fn,
+            loss_fn=args.loss_fn,
             backend="statsforecast",
             num_channels=data[0]["unique_id"].nunique(),
             logger=logger,
             log_dir=experiment_log_dir,
             seed=args.seed,
+            args=args,
         )
 
         # Train the model

@@ -26,6 +26,7 @@ class NixtlaEngine:
         log_dir=None,
         logger=None,
         seed=1,
+        args=None,
         **kwargs,
     ):
         # super().__init__()
@@ -41,6 +42,7 @@ class NixtlaEngine:
         self._seed = seed
         self._plot_path = self._save_path / "plots"
         self._plot_path.mkdir(parents=True, exist_ok=True)
+        self.alias = args.alias
 
         if backend == "statsforecast":
             from statsforecast import StatsForecast
@@ -99,7 +101,7 @@ class NixtlaEngine:
 
     # Training
     def train(self):
-        self._logger.info("Start training!")
+        self._logger.info("Start fitting the model!")
         # TODO: turn this N here into a parameter, experiment with different
         # values to get a good trade-off between speed and performance
         N = 20  # tune based on accuracy/speed trade-off
@@ -128,18 +130,10 @@ class NixtlaEngine:
             preds = []
             labels = []
             test_data = self._dataloader[1]
-            # # Generate predictions for 96 steps ahead
             predictions = self.model.predict(h=self.pred_len)
-            # We only take the AutoARIMA values and not the confidence intervals
-            import pdb
+            # We only take the values and not the confidence intervals
 
-            # out_batch = statsforecast_to_tensor(predictions, "AutoARIMA", True)
-            # out_batch = statsforecast_to_tensor(predictions, "SeasESOpt", True)
-            # out_batch = statsforecast_to_tensor(predictions, "HistoricAverage", True)
-            # out_batch = statsforecast_to_tensor(predictions, "Naive", True)
-            # out_batch = statsforecast_to_tensor(predictions, "SeasonalNaive", True)
-            # out_batch = statsforecast_to_tensor(predictions, "AutoTBATS", True)
-            out_batch = statsforecast_to_tensor(predictions, "AutoMFLES", True)
+            out_batch = statsforecast_to_tensor(predictions, self.alias, True)
 
             label = statsforecast_to_tensor(test_data, "y", True)
 
@@ -159,6 +153,7 @@ class NixtlaEngine:
                 torch.permute(labels, (0, 2, 1)),
             ]
 
+            # TODO: change this based on the loss we chose in the args.
             mse = self._loss_fn(preds, labels).item()
             # TODO: add these metrics
             mape = 0.0

@@ -3,11 +3,13 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 # TODO: change paths here, don't need all of em
-sys.path.append(str(SCRIPT_DIR.parents[1]))
-sys.path.append(str(SCRIPT_DIR.parents[2]))
+sys.path.append(str(SCRIPT_DIR.parents[4]))
+sys.path.append(str(SCRIPT_DIR.parents[5]))
 
-from src.utils.args import get_public_config
 
+from src.utils.args import get_auto_arima_config
+
+from src.utils.functions import get_loss_function
 from src.base.nixtla_engine import NixtlaEngine
 from src.utils.dataloader import StatsforecastDataloader
 from src.utils.logging import get_logger
@@ -18,9 +20,9 @@ import pandas as pd
 import time
 
 from statsforecast import StatsForecast
-from statsforecast.models import AutoTBATS
+from statsforecast.models import AutoARIMA
 
-import pdb
+# TODO: why multiprocessing, why set_num_threads?
 import multiprocessing
 
 torch.set_num_threads(3)
@@ -35,67 +37,14 @@ def set_seed(seed):
 
 
 def get_config():
-    parser = get_public_config()
-
-    # StatsForecast specific parameters
-    parser.add_argument(
-        "--n_cores", type=int, default=8, help="Number of cores for parallel processing"
-    )
-
-    # TBATS specific parameters
-    parser.add_argument(
-        "--season_length",
-        type=int,
-        nargs="+",
-        default=[24],
-        help="Seasonal period(s). For hourly data: 24=daily, 168=weekly. Can specify multiple (e.g., 24 168 for both daily and weekly patterns)",
-    )
-
-    parser.add_argument(
-        "--use_boxcox",
-        type=bool,
-        default=None,
-        help="Use Box-Cox transformation. If None, automatically determined",
-    )
-    parser.add_argument(
-        "--bc_lower_bound",
-        type=float,
-        default=0.0,
-        help="Lower bound for Box-Cox parameter",
-    )
-    parser.add_argument(
-        "--bc_upper_bound",
-        type=float,
-        default=1.0,
-        help="Upper bound for Box-Cox parameter",
-    )
-    parser.add_argument(
-        "--use_trend",
-        type=bool,
-        default=None,
-        help="Use trend component. If None, automatically determined",
-    )
-    parser.add_argument(
-        "--use_damped_trend",
-        type=bool,
-        default=None,
-        help="Use damped trend. If None, automatically determined",
-    )
-    parser.add_argument(
-        "--use_arma_errors", type=bool, default=True, help="Use ARMA errors"
-    )
-    parser.add_argument(
-        "--alias", type=str, default="AutoTBATS", help="Model alias name"
-    )
+    parser = get_auto_arima_config()
 
     args = parser.parse_args()
+    args.model_name = "autoarima"
+    # Define loss function
+    args.loss_fn = get_loss_function(args.loss_name)
 
-    if args.model_name == "":
-        args.model_name = "tbats"
-    if args.dataset == "":
-        args.dataset = "ETTh1"
-
-    base_dir = SCRIPT_DIR.parents[2] / "results"
+    base_dir = SCRIPT_DIR.parents[5] / "results"
 
     log_dir = "{}/{}/{}/seq_len_{}_pred_len_{}/".format(
         base_dir,
@@ -140,29 +89,27 @@ def run_experiments_on_data_list(
         print(f"Processing Experiment {idx + 1}/{len(data_list)}")
         print(f"{'=' * 60}\n")
 
-        # Create the AutoTBATS model
-
-        # TODO: change parameter values to ones from args
-        sf_tbats_model = AutoTBATS(
-            season_length=[24, 168],  # Hourly data with daily seasonality
-            use_boxcox=None,  # Automatically determine Box-Cox transformation
-            bc_lower_bound=0.0,
-            bc_upper_bound=1.0,
-            use_trend=None,  # Automatically determine trend component
-            use_damped_trend=None,  # Automatically determine damped trend
-            use_arma_errors=True,  # Use ARMA errors
-            alias="AutoTBATS",
+        # Create the AutoARIMA model
+        sf_arima_model = AutoARIMA(
+            season_length=24,
+            max_p=3,
+            max_q=3,
+            max_P=1,
+            max_Q=1,
+            d=1,
+            D=1,
+            stepwise=True,
+            approximation=True,
+            seasonal=True,
+            ic="aic",
         )
 
         # Create StatsForecast instance with the model
         sf = StatsForecast(
-            models=[sf_tbats_model],
-            freq="H",
-            n_jobs=-1,
+            models=[sf_arima_model],
+            freq=args.freq,
+            n_jobs=args.n_jobs,
         )
-
-        # Define loss function
-        loss_fn = torch.nn.MSELoss()
 
         # Create experiment-specific log directory
         # experiment_log_dir = f"{log_dir}/experiment_{idx}"
@@ -172,17 +119,22 @@ def run_experiments_on_data_list(
         # TODO: scaler None here, that means we can't scale the data back
         # but as we compare it to other scaled data and preds anyway, maybe
         # this option is not needed
+        #
+        # TODO: check if we should give arguments in the end or directly take
+        # the params from the args and pass them that way, like currently with
+        # args.horizon for example
         engine = NixtlaEngine(
             model=sf,
             dataloader=data,
             scaler=None,
             pred_len=args.horizon,
-            loss_fn=loss_fn,
+            loss_fn=args.loss_fn,
             backend="statsforecast",
             num_channels=data[0]["unique_id"].nunique(),
             logger=logger,
             log_dir=experiment_log_dir,
             seed=args.seed,
+            args=args,
         )
 
         # Train the model

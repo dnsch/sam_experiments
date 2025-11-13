@@ -3,11 +3,12 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 # TODO: change paths here, don't need all of em
-sys.path.append(str(SCRIPT_DIR.parents[1]))
-sys.path.append(str(SCRIPT_DIR.parents[2]))
+sys.path.append(str(SCRIPT_DIR.parents[4]))
+sys.path.append(str(SCRIPT_DIR.parents[5]))
 
-from src.utils.args import get_public_config
+from src.utils.args import get_historic_average_config
 
+from src.utils.functions import get_loss_function
 from src.base.nixtla_engine import NixtlaEngine
 from src.utils.dataloader import StatsforecastDataloader
 from src.utils.logging import get_logger
@@ -35,18 +36,14 @@ def set_seed(seed):
 
 
 def get_config():
-    parser = get_public_config()
-
-    # StatsForecast specific parameters
+    parser = get_historic_average_config()
 
     args = parser.parse_args()
 
-    if args.model_name == "":
-        args.model_name = "historic_average"
-    if args.dataset == "":
-        args.dataset = "ETTh1"
+    args.model_name = "historic_average"
+    args.loss_fn = get_loss_function(args.loss_name)
 
-    base_dir = SCRIPT_DIR.parents[2] / "results"
+    base_dir = SCRIPT_DIR.parents[5] / "results"
 
     log_dir = "{}/{}/{}/seq_len_{}_pred_len_{}/".format(
         base_dir,
@@ -92,23 +89,19 @@ def run_experiments_on_data_list(
         print(f"Processing Experiment {idx + 1}/{len(data_list)}")
         print(f"{'=' * 60}\n")
 
-        from typing import Any, Dict, List, Optional, Tuple, Union
-        from statsforecast.utils import (
-            ConformalIntervals,
-        )
+        # TODO: maybe create a more generic model getter which returns model
+        # based on args
+        # Currently, we have a lot of repetition
 
         # Create the SeasonalExponentialSmoothingOptimized model
         historic_average_model = HistoricAverage()
 
         # Create StatsForecast instance with the model
         sf = StatsForecast(
-            models=[historic_average_model],
-            freq="H",
-            n_jobs=-1,
+            models=[sf_arima_model],
+            freq=args.freq,
+            n_jobs=args.n_jobs,
         )
-
-        # Define loss function
-        loss_fn = torch.nn.MSELoss()
 
         # Create experiment-specific log directory
         # experiment_log_dir = f"{log_dir}/experiment_{idx}"
@@ -123,12 +116,13 @@ def run_experiments_on_data_list(
             dataloader=data,
             scaler=None,
             pred_len=args.horizon,
-            loss_fn=loss_fn,
+            loss_fn=args.loss_fn,
             backend="statsforecast",
             num_channels=data[0]["unique_id"].nunique(),
             logger=logger,
             log_dir=experiment_log_dir,
             seed=args.seed,
+            args=args,
         )
 
         # Train the model

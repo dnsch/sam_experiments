@@ -3,10 +3,11 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 # TODO: change paths here, don't need all of em
-sys.path.append(str(SCRIPT_DIR.parents[1]))
-sys.path.append(str(SCRIPT_DIR.parents[2]))
+sys.path.append(str(SCRIPT_DIR.parents[4]))
+sys.path.append(str(SCRIPT_DIR.parents[5]))
 
-from src.utils.args import get_public_config
+from src.utils.args import get_seasonal_exponential_smoothing_config
+from src.utils.functions import get_loss_function
 
 from src.base.nixtla_engine import NixtlaEngine
 from src.utils.dataloader import StatsforecastDataloader
@@ -35,18 +36,16 @@ def set_seed(seed):
 
 
 def get_config():
-    parser = get_public_config()
+    parser = get_seasonal_exponential_smoothing_config()
 
     # StatsForecast specific parameters
 
     args = parser.parse_args()
 
-    if args.model_name == "":
-        args.model_name = "sf_seasonal_exponential_smoothing_optimized"
-    if args.dataset == "":
-        args.dataset = "ETTh1"
+    args.model_name = "sf_seasonal_exponential_smoothing_optimized"
+    args.loss_fn = get_loss_function(args.loss_name)
 
-    base_dir = SCRIPT_DIR.parents[2] / "results"
+    base_dir = SCRIPT_DIR.parents[5] / "results"
 
     log_dir = "{}/{}/{}/seq_len_{}_pred_len_{}/".format(
         base_dir,
@@ -92,28 +91,20 @@ def run_experiments_on_data_list(
         print(f"Processing Experiment {idx + 1}/{len(data_list)}")
         print(f"{'=' * 60}\n")
 
-        from typing import Any, Dict, List, Optional, Tuple, Union
-        from statsforecast.utils import (
-            ConformalIntervals,
-        )
-
         # Create the SeasonalExponentialSmoothingOptimized model
         sf_seasonal_exponential_smoothing_optimized_model = (
             SeasonalExponentialSmoothingOptimized(
-                season_length=24,
-                # prediction_intervals: Optional[ConformalIntervals] = None,
+                season_length=args.season_length,
+                alias=args.alias,
             )
         )
 
         # Create StatsForecast instance with the model
         sf = StatsForecast(
             models=[sf_seasonal_exponential_smoothing_optimized_model],
-            freq="H",
-            n_jobs=-1,
+            freq=args.freq,
+            n_jobs=args.n_jobs,
         )
-
-        # Define loss function
-        loss_fn = torch.nn.MSELoss()
 
         # Create experiment-specific log directory
         # experiment_log_dir = f"{log_dir}/experiment_{idx}"
@@ -128,12 +119,13 @@ def run_experiments_on_data_list(
             dataloader=data,
             scaler=None,
             pred_len=args.horizon,
-            loss_fn=loss_fn,
+            loss_fn=args.loss_fn,
             backend="statsforecast",
             num_channels=data[0]["unique_id"].nunique(),
             logger=logger,
             log_dir=experiment_log_dir,
             seed=args.seed,
+            args=args,
         )
 
         # Train the model

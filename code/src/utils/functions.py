@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import torch.nn as nn
 
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
@@ -30,6 +31,35 @@ def set_seed(seed):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = False
     torch.backends.cudnn.benchmark = False
+
+
+# Loss
+def get_loss_function(loss_name):
+    """Return the appropriate loss function based on the name."""
+    loss_functions = {
+        "mse": nn.MSELoss(),
+        "crossentropy": nn.CrossEntropyLoss(),
+        "mae": nn.L1Loss(),
+        "mape": MAPELoss(),
+    }
+
+    if loss_name.lower() not in loss_functions:
+        raise ValueError(
+            f"Unknown loss function: {loss_name}. "
+            f"Available options: {list(loss_functions.keys())}"
+        )
+
+    return loss_functions[loss_name.lower()]
+
+
+# MAPE Loss
+class MAPELoss(nn.Module):
+    def __init__(self, epsilon=1e-8):
+        super().__init__()
+        self.epsilon = epsilon
+
+    def forward(self, y_pred, y_true):
+        return torch.mean(torch.abs((y_true - y_pred) / (y_true + self.epsilon))) * 100
 
 
 # Samformer Functions
@@ -442,7 +472,7 @@ def get_nixtla_model(args):
     """
     model_name_lower = args.model_name.lower()
 
-    if model_name_lower == "arima":
+    if model_name_lower == "autoarima":
         # Extract parameters with defaults and warnings
         seasonal_periods = _get_param_with_warning(
             args, "season_length", 24, "seasonal_periods"
@@ -480,7 +510,7 @@ def get_nixtla_model(args):
             ic="aic",
         )
 
-    elif model_name_lower == "mfles":
+    elif model_name_lower == "automfles":
         # Extract parameters with defaults and warnings
         season_length = _get_param_with_warning(args, "season_length", 24)
 
@@ -504,9 +534,6 @@ def get_nixtla_model(args):
             args, "prediction_intervals", None
         )
 
-        import pdb
-
-        pdb.set_trace()
         model = AutoMFLES(
             test_size=test_size,
             season_length=season_length,

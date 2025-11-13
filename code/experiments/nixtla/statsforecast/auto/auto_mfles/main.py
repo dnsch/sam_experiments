@@ -6,8 +6,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.append(str(SCRIPT_DIR.parents[4]))
 sys.path.append(str(SCRIPT_DIR.parents[5]))
 
-
-from src.utils.args import get_autoarima_config
+from src.utils.args import get_auto_mfles_config
 
 from src.base.nixtla_engine import NixtlaEngine
 from src.utils.dataloader import StatsforecastDataloader
@@ -19,8 +18,9 @@ import pandas as pd
 import time
 
 from statsforecast import StatsForecast
-from statsforecast.models import AutoARIMA
+from statsforecast.models import AutoMFLES
 
+import pdb
 import multiprocessing
 
 torch.set_num_threads(3)
@@ -35,12 +35,14 @@ def set_seed(seed):
 
 
 def get_config():
-    parser = get_autoarima_config()
+    parser = get_auto_mfles_config()
 
     args = parser.parse_args()
-    args.model_name = "arima"
+    args.model_name = "automfles"
+    # Define loss function
+    args.loss_fn = get_loss_function(args.loss_name)
 
-    base_dir = SCRIPT_DIR.parents[5] / "results"
+    base_dir = SCRIPT_DIR.parents[5] / "results"  # Changed to match autoarima
 
     log_dir = "{}/{}/{}/seq_len_{}_pred_len_{}/".format(
         base_dir,
@@ -85,30 +87,26 @@ def run_experiments_on_data_list(
         print(f"Processing Experiment {idx + 1}/{len(data_list)}")
         print(f"{'=' * 60}\n")
 
-        # Create the AutoARIMA model
-        sf_arima_model = AutoARIMA(
-            season_length=24,
-            max_p=3,
-            max_q=3,
-            max_P=1,
-            max_Q=1,
-            d=1,
-            D=1,
-            stepwise=True,
-            approximation=True,
-            seasonal=True,
-            ic="aic",
-        )
+        # Create the AutoTBATS model
 
+        # TODO: change parameter values to ones from args
+        sf_mfles_model = AutoMFLES(
+            test_size=args.horizon,
+            season_length=args.season_length,
+            n_windows=args.n_windows,
+            metric=args.metric,
+            verbose=args.verbose,
+            prediction_intervals=args.prediction_intervals,
+        )
         # Create StatsForecast instance with the model
         sf = StatsForecast(
-            models=[sf_arima_model],
-            freq="H",
-            n_jobs=-1,
+            models=[sf_mfles_model],
+            freq=args.freq,
+            n_jobs=args.n_jobs,
         )
+        from src.utils.functions import get_statsforecast_model
 
-        # Define loss function
-        loss_fn = torch.nn.MSELoss()
+        model = get_statsforecast_model(args)
 
         # Create experiment-specific log directory
         # experiment_log_dir = f"{log_dir}/experiment_{idx}"
@@ -119,16 +117,17 @@ def run_experiments_on_data_list(
         # but as we compare it to other scaled data and preds anyway, maybe
         # this option is not needed
         engine = NixtlaEngine(
-            model=sf,
+            model=model,
             dataloader=data,
             scaler=None,
             pred_len=args.horizon,
-            loss_fn=loss_fn,
+            loss_fn=args.loss_fn,
             backend="statsforecast",
             num_channels=data[0]["unique_id"].nunique(),
             logger=logger,
             log_dir=experiment_log_dir,
             seed=args.seed,
+            args=args,
         )
 
         # Train the model
@@ -143,7 +142,6 @@ def run_experiments_on_data_list(
 
 def main():
     args, log_dir, logger = get_config()
-    pdb.set_trace()
 
     set_seed(args.seed)
 
