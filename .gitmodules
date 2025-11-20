@@ -16,3 +16,6 @@
 [submodule "lib/optimizers/fsam"]
 	path = lib/optimizers/fsam
 	url = https://github.com/dnsch/F-SAM.git
+[submodule "lib/models/PatchTST"]
+	path = lib/models/PatchTST
+	url = https://github.com/dnsch/PatchTST.git
