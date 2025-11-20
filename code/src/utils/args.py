@@ -4,6 +4,9 @@ import argparse
 File to build model and configuration specific arguments
 """
 
+# TODO: check if we can change those BOOL types, see
+# https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse
+
 # TODO: add vgg arg group
 # then add this to the _add_vgg_args
 #
@@ -591,6 +594,269 @@ def _add_tsmixer_args(parser):
     return parser
 
 
+def _add_patchtst_args(parser):
+    """Add PatchTST model architecture arguments."""
+
+    # PatchTST specific arguments
+    patchtst_group = parser.add_argument_group(
+        "PatchTST Model", "PatchTST-specific model architecture hyperparameters"
+    )
+
+    # Core PatchTST parameters
+    patchtst_group.add_argument(
+        "--num_channels",
+        type=int,
+        default=7,
+        metavar="N",
+        help="number of input channels (enc_in)",
+    )
+    patchtst_group.add_argument(
+        "--e_layers",
+        type=int,
+        default=2,
+        metavar="N",
+        help="number of encoder layers",
+    )
+    patchtst_group.add_argument(
+        "--n_heads",
+        type=int,
+        default=8,
+        metavar="N",
+        help="number of attention heads",
+    )
+    patchtst_group.add_argument(
+        "--d_model",
+        type=int,
+        default=512,
+        metavar="N",
+        help="dimension of model",
+    )
+    patchtst_group.add_argument(
+        "--d_ff",
+        type=int,
+        default=2048,
+        metavar="N",
+        help="dimension of feedforward network",
+    )
+    patchtst_group.add_argument(
+        "--dropout",
+        type=float,
+        default=0.05,
+        metavar="RATE",
+        help="dropout rate",
+    )
+    patchtst_group.add_argument(
+        "--fc_dropout",
+        type=float,
+        default=0.05,
+        metavar="RATE",
+        help="fully connected dropout rate",
+    )
+    patchtst_group.add_argument(
+        "--head_dropout",
+        type=float,
+        default=0.0,
+        metavar="RATE",
+        help="head dropout rate",
+    )
+    patchtst_group.add_argument(
+        "--patch_len",
+        type=int,
+        default=16,
+        metavar="N",
+        help="patch length",
+    )
+    patchtst_group.add_argument(
+        "--stride",
+        type=int,
+        default=8,
+        metavar="N",
+        help="stride for patch creation",
+    )
+    patchtst_group.add_argument(
+        "--padding_patch",
+        type=str,
+        default="end",
+        choices=["end", "none"],
+        metavar="TYPE",
+        help="padding type for patches",
+    )
+    patchtst_group.add_argument(
+        "--revin",
+        type=int,
+        default=1,
+        choices=[0, 1],
+        metavar="BOOL",
+        help="use RevIN normalization (1=True, 0=False)",
+    )
+    patchtst_group.add_argument(
+        "--affine",
+        type=int,
+        default=0,
+        choices=[0, 1],
+        metavar="BOOL",
+        help="RevIN affine transformation (1=True, 0=False)",
+    )
+    patchtst_group.add_argument(
+        "--subtract_last",
+        type=int,
+        default=0,
+        choices=[0, 1],
+        metavar="BOOL",
+        help="subtract last value (1=True) or mean (0=False)",
+    )
+    patchtst_group.add_argument(
+        "--decomposition",
+        type=int,
+        default=0,
+        choices=[0, 1],
+        metavar="BOOL",
+        help="use series decomposition (1=True, 0=False)",
+    )
+    patchtst_group.add_argument(
+        "--kernel_size",
+        type=int,
+        default=25,
+        metavar="N",
+        help="kernel size for decomposition",
+    )
+    patchtst_group.add_argument(
+        "--individual",
+        type=int,
+        default=0,
+        choices=[0, 1],
+        metavar="BOOL",
+        help="individual head for each channel (1=True, 0=False)",
+    )
+
+    # Additional transformer parameters
+    patchtst_group.add_argument(
+        "--max_seq_len",
+        type=int,
+        default=1024,
+        metavar="N",
+        help="maximum sequence length",
+    )
+    patchtst_group.add_argument(
+        "--d_k",
+        type=int,
+        default=None,
+        metavar="N",
+        help="dimension of keys (default: d_model // n_heads)",
+    )
+    patchtst_group.add_argument(
+        "--d_v",
+        type=int,
+        default=None,
+        metavar="N",
+        help="dimension of values (default: d_model // n_heads)",
+    )
+    patchtst_group.add_argument(
+        "--norm",
+        type=str,
+        default="BatchNorm",
+        choices=["BatchNorm", "LayerNorm"],
+        metavar="TYPE",
+        help="normalization type",
+    )
+    patchtst_group.add_argument(
+        "--attn_dropout",
+        type=float,
+        default=0.0,
+        metavar="RATE",
+        help="attention dropout rate",
+    )
+    patchtst_group.add_argument(
+        "--activation",
+        type=str,
+        default="gelu",
+        choices=["gelu", "relu", "swish"],
+        metavar="ACTIVATION",
+        help="activation function",
+    )
+    patchtst_group.add_argument(
+        "--key_padding_mask",
+        type=str,
+        default="auto",
+        metavar="TYPE",
+        help="key padding mask type",
+    )
+    patchtst_group.add_argument(
+        "--padding_var",
+        type=int,
+        default=None,
+        metavar="N",
+        help="padding variable",
+    )
+    patchtst_group.add_argument(
+        "--attn_mask",
+        type=str,
+        default=None,
+        metavar="TYPE",
+        help="attention mask",
+    )
+    patchtst_group.add_argument(
+        "--res_attention",
+        type=bool,
+        default=True,
+        metavar="BOOL",
+        help="use residual attention",
+    )
+    patchtst_group.add_argument(
+        "--pre_norm",
+        type=bool,
+        default=False,
+        metavar="BOOL",
+        help="pre-normalization",
+    )
+    patchtst_group.add_argument(
+        "--store_attn",
+        type=bool,
+        default=False,
+        metavar="BOOL",
+        help="store attention weights",
+    )
+    patchtst_group.add_argument(
+        "--pe",
+        type=str,
+        default="zeros",
+        choices=["zeros", "normal", "uniform"],
+        metavar="TYPE",
+        help="positional encoding type",
+    )
+    patchtst_group.add_argument(
+        "--learn_pe",
+        type=bool,
+        default=True,
+        metavar="BOOL",
+        help="learn positional encoding",
+    )
+    patchtst_group.add_argument(
+        "--pretrain_head",
+        type=bool,
+        default=False,
+        metavar="BOOL",
+        help="use pretrained head",
+    )
+    patchtst_group.add_argument(
+        "--head_type",
+        type=str,
+        default="flatten",
+        choices=["flatten", "prediction"],
+        metavar="TYPE",
+        help="head type",
+    )
+    patchtst_group.add_argument(
+        "--verbose",
+        type=bool,
+        default=False,
+        metavar="BOOL",
+        help="verbose output",
+    )
+
+    return parser
+
+
 def _add_statsforecast_args(parser):
     """Add StatsForecast arguments."""
     statsforecast_group = parser.add_argument_group(
@@ -1021,6 +1287,42 @@ def get_tsmixer_config():
     parser = _add_tsmixer_args(parser)
     parser = _add_sam_args(parser)
     parser = _add_gsam_args(parser)
+    # Add loss landscape configuration
+    parser = _add_loss_landscape_args(parser)
+
+    return parser
+
+
+def get_patchtst_config():
+    """
+    Complete PatchTST configuration parser.
+
+    Includes:
+
+    - Base config (hardware, model, dataset, experiment)
+    - Deep learning config (optimizer, hyperparameters)
+
+    - Loss landscape config (visualization and plotting)
+    - PatchTST model architecture
+
+    - SAM optimization
+    - GSAM optimization
+
+    """
+    # Start with base config
+    parser = get_base_config()
+
+    # Add time series forecast config
+    parser = _add_time_series_forecast_args(parser)
+
+    # Add deep learning configuration
+    parser = _add_deep_learning_args(parser)
+
+    # Add PatchTST-specific configurations
+    parser = _add_patchtst_args(parser)
+    parser = _add_sam_args(parser)
+    parser = _add_gsam_args(parser)
+
     # Add loss landscape configuration
     parser = _add_loss_landscape_args(parser)
 
