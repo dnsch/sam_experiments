@@ -22,3 +22,6 @@
 [submodule "lib/models/FEDformer"]
 	path = lib/models/FEDformer
 	url = https://github.com/dnsch/FEDformer.git
+[submodule "lib/models/iTransformer"]
+	path = lib/models/iTransformer
+	url = https://github.com/dnsch/iTransformer.git
