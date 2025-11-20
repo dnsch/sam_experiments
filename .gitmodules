@@ -19,3 +19,6 @@
 [submodule "lib/models/PatchTST"]
 	path = lib/models/PatchTST
 	url = https://github.com/dnsch/PatchTST.git
+[submodule "lib/models/FEDformer"]
+	path = lib/models/FEDformer
+	url = https://github.com/dnsch/FEDformer.git
