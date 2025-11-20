@@ -215,6 +215,13 @@ def _add_deep_learning_args(parser):
         help="gradient clipping value (0 = no clipping)",
     )
 
+    deep_learning_group.add_argument(
+        "--use_revin",
+        action="store_true",
+        default=False,
+        help="use reversible instance normalization",
+    )
+
     # Add to existing Experiment group
     exp_group = _get_argument_group(parser, "Experiment")
     if exp_group:
@@ -228,7 +235,7 @@ def _add_deep_learning_args(parser):
         exp_group.add_argument(
             "--patience",
             type=int,
-            default=30,
+            default=None,
             metavar="N",
             help="patience for early stopping (number of epochs without improvement)",
         )
@@ -510,12 +517,6 @@ def _add_samformer_args(parser):
     )
 
     samformer_group.add_argument(
-        "--use_revin",
-        action="store_true",
-        default=True,
-        help="use reversible instance normalization",
-    )
-    samformer_group.add_argument(
         "--num_channels",
         type=int,
         default=7,
@@ -525,6 +526,68 @@ def _add_samformer_args(parser):
     samformer_group.add_argument(
         "--hid_dim", type=int, default=16, metavar="N", help="hidden dimension size"
     )
+    return parser
+
+
+def _add_tsmixer_args(parser):
+    """Add TSMixer model architecture arguments."""
+
+    # TSMixer specific arguments
+    tsmixer_group = parser.add_argument_group(
+        "TSMixer Model", "TSMixer-specific model architecture hyperparameters"
+    )
+
+    tsmixer_group.add_argument(
+        "--num_channels",
+        type=int,
+        default=7,
+        metavar="N",
+        help="number of input channels",
+    )
+    tsmixer_group.add_argument(
+        "--activation_fn",
+        type=str,
+        default="relu",
+        metavar="ACTIVATION",
+        help="activation function for TSMixer",
+    )
+    tsmixer_group.add_argument(
+        "--num_blocks",
+        type=int,
+        default=2,
+        metavar="N",
+        help="number of mixer blocks",
+    )
+    tsmixer_group.add_argument(
+        "--dropout_rate",
+        type=float,
+        default=0.1,
+        metavar="RATE",
+        help="dropout rate for TSMixer",
+    )
+    tsmixer_group.add_argument(
+        "--ff_dim",
+        type=int,
+        default=64,
+        metavar="N",
+        help="feedforward dimension in mixer layers",
+    )
+    tsmixer_group.add_argument(
+        "--normalize_before",
+        type=bool,
+        default=True,
+        metavar="BOOL",
+        help="whether to normalize before mixer layers",
+    )
+    tsmixer_group.add_argument(
+        "--norm_type",
+        type=str,
+        default="batch",
+        choices=["batch", "layer"],
+        metavar="TYPE",
+        help="type of normalization",
+    )
+
     return parser
 
 
@@ -918,6 +981,44 @@ def get_samformer_config():
 
     # Add SAMFormer-specific configurations
     parser = _add_samformer_args(parser)
+    parser = _add_sam_args(parser)
+    parser = _add_gsam_args(parser)
+    # Add loss landscape configuration
+    parser = _add_loss_landscape_args(parser)
+
+    return parser
+
+
+def get_tsmixer_config():
+    """
+    Complete TSMixer configuration parser.
+
+    Includes:
+
+
+    - Base config (hardware, model, dataset, experiment)
+    - Deep learning config (optimizer, hyperparameters)
+
+
+    - Loss landscape config (visualization and plotting)
+    - TSMixer model architecture
+
+
+    - SAM optimization
+    - GSAM optimization
+
+    """
+    # Start with base config
+    parser = get_base_config()
+
+    # Add time series forecast config
+    parser = _add_time_series_forecast_args(parser)
+
+    # Add deep learning configuration
+    parser = _add_deep_learning_args(parser)
+
+    # Add TSMixer-specific configurations
+    parser = _add_tsmixer_args(parser)
     parser = _add_sam_args(parser)
     parser = _add_gsam_args(parser)
     # Add loss landscape configuration

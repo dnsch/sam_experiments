@@ -3,11 +3,16 @@ import sys
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+# TODO: change paths here, don't need all of em
 sys.path.append(str(SCRIPT_DIR.parents[1]))
+sys.path.append(str(SCRIPT_DIR.parents[2]))
+sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "pyhessian"))
+sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "loss_landscape"))
 
-from src.models.tsmixer import TSMixer
+from src.models.time_series.tsmixer import TSMixer
+from src.models.time_series.tsmixer import TSMixerExt
 from src.engines.tsmixer_engine import TSMixer_Engine
-from src.utils.args import get_public_config
+from src.utils.args import get_tsmixer_config
 from src.utils.dataloader import (
     SamformerDataloader,  # Assuming this can be reused or rename to generic dataloader
 )
@@ -34,66 +39,10 @@ def set_seed(seed):
 
 
 def get_config():
-    parser = get_public_config()
-
-    # Optimizer
-    parser.add_argument(
-        "--optimizer",
-        type=str,
-        default="Adam",
-        help="Optimizer to use (e.g., Adam, SGD, Adagrad). Use same case as class names in torch.optim",
-    )
-    # Hyperparameters
-    parser.add_argument("--batch_size", type=int, default=256)
-    parser.add_argument("--lrate", type=float, default=1e-3)
-    parser.add_argument("--wdecay", type=float, default=1e-5)
-    parser.add_argument("--clip_grad_value", type=float, default=0)
-    parser.add_argument("--num_channels", type=int, default=1)
-
-    # SAM hyperparameters
-    parser.add_argument("--rho", type=float, default=0.5, help="SAM rho parameter")
-    parser.add_argument("--use_revin", type=bool, default=False)
-
-    # TSMixer parameters
-    parser.add_argument(
-        "--activation_fn",
-        type=str,
-        default="relu",
-        help="Activation function for TSMixer",
-    )
-    parser.add_argument(
-        "--num_blocks", type=int, default=2, help="Number of mixer blocks"
-    )
-    parser.add_argument(
-        "--dropout_rate", type=float, default=0.1, help="Dropout rate for TSMixer"
-    )
-    parser.add_argument(
-        "--ff_dim", type=int, default=64, help="Feedforward dimension in mixer layers"
-    )
-    parser.add_argument(
-        "--normalize_before",
-        type=bool,
-        default=True,
-        help="Whether to normalize before mixer layers",
-    )
-    parser.add_argument(
-        "--norm_type",
-        type=str,
-        default="batch",
-        choices=["batch", "layer"],
-        help="Type of normalization",
-    )
-
-    parser.add_argument(
-        "--no_sam", action="store_true", help="don't use Sharpness Aware Minimization"
-    )
-
+    parser = get_tsmixer_config()
     args = parser.parse_args()
 
-    if args.model_name == "":
-        args.model_name = "tsmixer"
-    if args.dataset == "":
-        args.dataset = "ETTh1"
+    args.model_name = "tsmixer"
     base_dir = SCRIPT_DIR.parents[2] / "results"
 
     # Logger
@@ -182,6 +131,21 @@ def main():
         norm_type=args.norm_type,
         use_revin=args.use_revin,
     )
+    # model = TSMixerExt(
+    #     num_channels=args.num_channels,
+    #     input_dim=args.input_dim,
+    #     output_dim=args.output_dim,
+    #     seq_len=args.seq_len,
+    #     horizon=args.horizon,
+    #     # TSMixer specific parameters
+    #     activation_fn=args.activation_fn,
+    #     num_blocks=args.num_blocks,
+    #     dropout_rate=args.dropout_rate,
+    #     ff_dim=args.ff_dim,
+    #     normalize_before=args.normalize_before,
+    #     norm_type=args.norm_type,
+    #     use_revin=args.use_revin,
+    # )
 
     optimizer = load_optimizer(model, args, logger)
     if not args.no_sam:

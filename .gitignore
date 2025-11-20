@@ -9,6 +9,7 @@
 
 # Ignore results data
 results/*/
+*/results/*/
 
 # Ignore all data
 data/cifar10_datasets/*/

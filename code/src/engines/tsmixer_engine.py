@@ -51,6 +51,11 @@ class TSMixer_Engine(TorchEngine):
             x_batch = x_batch.permute(0, 2, 1)
             y_batch = self._to_device(y_batch)
 
+            # print(f"batch_idx: {batch_idx}")
+            # if batch_idx >= 250:
+            #     import pdb
+            #
+            #     pdb.set_trace()
             out_batch = self.model(x_batch, True)
 
             loss = self._loss_fn(out_batch, y_batch)
@@ -229,7 +234,6 @@ class TSMixer_Engine(TorchEngine):
                     X = X.permute(0, 2, 1)
                     X, label = self._to_device(self._to_tensor([X, label]))
                     out_batch = self.model(X, True)
-                    pdb.set_trace()
                     preds.append(out_batch.cpu())
                     labels.append(label.cpu())
 

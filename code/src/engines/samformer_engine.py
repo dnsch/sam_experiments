@@ -7,6 +7,9 @@ from src.utils.functions import (
     branch_plot,
     plot_mean_per_day,
     mean_branch_plot,
+    plot_samformer_attention_mean,
+    plot_samformer_attention_mean_stats,
+    plot_samformer_attention_variance,
 )
 from torchmetrics.regression import MeanAbsolutePercentageError, MeanSquaredError
 
@@ -26,6 +29,7 @@ class SAMFormer_Engine(TorchEngine):
         no_sam=True,
         use_revin=True,
         gsam=False,
+        plot_attention=False,
         **args,
     ):
         super(SAMFormer_Engine, self).__init__(**args)
@@ -35,6 +39,7 @@ class SAMFormer_Engine(TorchEngine):
         self.no_sam = no_sam
         self.use_revin = use_revin
         self.gsam = gsam
+        self.plot_attention = plot_attention
         self.random_state = self._seed
         self._timeout = True
         self._epochs = 0
@@ -48,13 +53,23 @@ class SAMFormer_Engine(TorchEngine):
         train_loss = []
         train_mape = []
         train_rmse = []
+        if self.plot_attention:
+            attention_patterns_per_batch = []
 
         for batch_idx, data in enumerate(self._dataloader["train_loader"]):
             x_batch, y_batch = data
 
             x_batch = self._to_device(x_batch)
             y_batch = self._to_device(y_batch)
+
+            import pdb
+
+            pdb.set_trace()
+
             out_batch = self.model(x_batch, True)
+
+            attention_patterns_per_batch.append(self.model.attention_pattern)
+            # attention_patterns_per_epoch.append(tensor.detach().cpu().numpy())
 
             loss = self._loss_fn(out_batch, y_batch)
             mape = self._mape(out_batch, y_batch).item()
@@ -94,9 +109,25 @@ class SAMFormer_Engine(TorchEngine):
             train_rmse.append(rmse)
 
         if self.gsam:
-            return np.mean(train_loss), np.mean(train_mape), np.mean(train_rmse), cur_lr
+            return (
+                np.mean(train_loss),
+                np.mean(train_mape),
+                np.mean(train_rmse),
+                cur_lr,
+                attention_patterns_per_batch,
+            )
         else:
-            return np.mean(train_loss), np.mean(train_mape), np.mean(train_rmse)
+            return (
+                np.mean(train_loss),
+                np.mean(train_mape),
+                np.mean(train_rmse),
+                attention_patterns_per_batch,
+            )
+
+        # if self.gsam:
+        #     return np.mean(train_loss), np.mean(train_mape), np.mean(train_rmse), cur_lr
+        # else:
+        #     return np.mean(train_loss), np.mean(train_mape), np.mean(train_rmse)
 
     def train(self):
         self._logger.info("Start training!")
@@ -109,18 +140,75 @@ class SAMFormer_Engine(TorchEngine):
         total_valid_loss = []
         total_valid_mape = []
         total_valid_rmse = []
+
+        # Create attention plots directory
+        attention_mean_plot_path = self._plot_path / "attention" / "mean"
+        attention_mean_plot_path.mkdir(parents=True, exist_ok=True)
+        attention_var_plot_path = self._plot_path / "attention" / "variance"
+        attention_var_plot_path.mkdir(parents=True, exist_ok=True)
+
+        # Frequency of attention plotting
+        attention_plot_freq = 1
+
+        attention_patterns_per_epoch_list = []
+
         b1 = time.time()
         for epoch in range(self._max_epochs):
             t1 = time.time()
             if self.gsam:
-                mtrain_loss, mtrain_mape, mtrain_rmse, cur_lr = self.train_batch()
+                (
+                    mtrain_loss,
+                    mtrain_mape,
+                    mtrain_rmse,
+                    cur_lr,
+                    attention_patterns_per_epoch,
+                ) = self.train_batch()
+                self.model.attention_pattern.mean(axis=0).detach().cpu().numpy()
             else:
-                mtrain_loss, mtrain_mape, mtrain_rmse = self.train_batch()
+                mtrain_loss, mtrain_mape, mtrain_rmse, attention_patterns_per_epoch = (
+                    self.train_batch()
+                )
+
+            attention_patterns_per_epoch_list.append(attention_patterns_per_epoch)
+            # if self.gsam:
+            #     mtrain_loss, mtrain_mape, mtrain_rmse, cur_lr = self.train_batch()
+            # else:
+            #     mtrain_loss, mtrain_mape, mtrain_rmse = self.train_batch()
             t2 = time.time()
 
             v1 = time.time()
             mvalid_loss, mvalid_mape, mvalid_rmse = self.evaluate("val")
             v2 = time.time()
+
+            # Plot attention weights
+            if epoch % attention_plot_freq == 0 or epoch == self._max_epochs - 1:
+                try:
+                    self.model.eval()
+
+                    # Simple attention heatmap
+                    plot_samformer_attention_mean(
+                        attention_patterns_per_epoch,
+                        epoch=epoch + 1,
+                        save_path=attention_mean_plot_path,
+                    )
+
+                    # Detailed attention statistics
+                    plot_samformer_attention_mean_stats(
+                        attention_patterns_per_epoch,
+                        epoch=epoch + 1,
+                        save_path=attention_mean_plot_path,
+                    )
+
+                    # Simple attention heatmap
+                    plot_samformer_attention_variance(
+                        attention_patterns_per_epoch,
+                        epoch=epoch + 1,
+                        save_path=attention_var_plot_path,
+                    )
+
+                    self._logger.info(f"Attention plots saved for epoch {epoch + 1}")
+                except Exception as e:
+                    self._logger.warning(f"Failed to plot attention: {e}")
 
             if self.gsam:
                 cur_lr = cur_lr
@@ -186,6 +274,7 @@ class SAMFormer_Engine(TorchEngine):
                     break
 
             self._epochs = epoch + 1
+
         try:
             plot_stats(
                 total_train_loss,

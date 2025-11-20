@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
+from matplotlib.pyplot import plot
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 # TODO: change paths here, don't need all of em
 sys.path.append(str(SCRIPT_DIR.parents[1]))
@@ -138,6 +140,7 @@ def run_experiments_on_dataloader_list(
             no_sam=args.no_sam,
             use_revin=args.use_revin,
             gsam=args.gsam,
+            plot_attention=args.plot_attention,
         )
 
         # Run train or test based on mode
@@ -172,6 +175,8 @@ def main():
         sequential_comparison=sequential_comparison,
     )
 
+    # TODO:add as parameter
+    args.plot_attention = True
     # TODO: add this as parameter
     if sequential_comparison:
         dataloader_list = dataloader_instance.get_dataloader()
@@ -185,6 +190,7 @@ def main():
             hid_dim=args.hid_dim,
             horizon=args.horizon,
             use_revin=args.use_revin,
+            plot_attention=args.plot_attention,
         )
     else:
         dataloader = dataloader_instance.get_dataloader()
@@ -197,6 +203,7 @@ def main():
             hid_dim=args.hid_dim,
             horizon=args.horizon,
             use_revin=args.use_revin,
+            plot_attention=args.plot_attention,
         )
 
     optimizer = load_optimizer(model, args, logger)
@@ -278,6 +285,13 @@ def main():
 
     else:
         scaler = dataloader_instance.get_scaler()
+        lr_scheduler = CosineAnnealingWarmRestarts(
+            optimizer=optimizer,
+            T_0=5,  # Restart every 5 epochs (like max_epochs=5 in your example)
+            T_mult=1,  # Keep the same cycle length
+            eta_min=1e-6,  # Minimum learning rate
+            last_epoch=-1,
+        )
         engine = SAMFormer_Engine(
             device=args.device,
             model=model,
@@ -301,6 +315,7 @@ def main():
             no_sam=args.no_sam,
             use_revin=args.use_revin,
             gsam=args.gsam,
+            plot_attention=args.plot_attention,
         )
 
         if args.mode == "train":

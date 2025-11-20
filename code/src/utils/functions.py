@@ -91,6 +91,245 @@ def load_optimizer(model, args, logger):
         raise ValueError(f"Optimizer '{args.optimizer}' not found in torch.optim.")
 
 
+# Plot attention_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
+import torch
+import torch.nn.functional as F
+
+
+class AttentionExtractor:
+    """Extract and store attention weights during forward pass"""
+
+    def __init__(self):
+        self.keys = None
+        self.queries = None
+        self.attention_weights = None
+
+    def extract_attention(self, model, x):
+        """
+        Extract attention weights from SAMFormer model
+
+        Args:
+            model: SAMFormer model
+            x: Input tensor
+
+        Returns:
+            attention_weights: Tensor of shape (batch, seq_len, seq_len)
+        """
+        with torch.no_grad():
+            # Get keys and queries
+            # Assuming x shape is (batch, seq_len, features)
+            keys = model.compute_keys(x)  # (batch, seq_len, 16)
+            queries = model.compute_queries(x)  # (batch, seq_len, 16)
+
+            # Compute attention: Q * K^T / sqrt(d_k)
+            d_k = keys.size(-1)
+            attention_scores = torch.matmul(queries, keys.transpose(-2, -1)) / (
+                d_k**0.5
+            )
+
+            # Apply softmax to get attention weights
+            attention_weights = F.softmax(attention_scores, dim=-1)
+
+        return attention_weights
+
+
+def plot_samformer_attention_mean(
+    attention_patterns_per_epoch,
+    epoch,
+    save_path,
+    max_display_size=100,
+):
+    """
+    Plot attention matrix for SAMFormer model
+
+    Args:
+        model: SAMFormer model
+        x_batch: Input batch tensor
+        epoch: Current epoch number
+        save_path: Path to save the plot
+        sample_idx: Which sample from batch to visualize
+        max_display_size: Maximum sequence length to display
+    """
+    save_path.mkdir(parents=True, exist_ok=True)
+
+    # attention_patterns_mean = (
+    #     torch.cat(attention_patterns_per_epoch, dim=0)
+    #     .mean(dim=0)
+    #     .detach()
+    #     .cpu()
+    #     .numpy()
+    # )
+    attention_patterns_mean = (
+        attention_patterns_per_epoch[-2].mean(dim=0).detach().cpu().numpy()
+    )
+
+    # Limit display size for readability
+    if attention_patterns_mean.shape[0] > max_display_size:
+        attention_patterns_mean = attention_patterns_mean[
+            :max_display_size, :max_display_size
+        ]
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=(12, 10))
+
+    # Plot heatmap
+    # im = ax.imshow(attention_patterns_mean, vmin=0, vmax=1, cmap="Reds", aspect="auto")
+    im = ax.imshow(attention_patterns_mean, vmin=0, vmax=1, cmap="Reds", aspect="auto")
+
+    # Add colorbar
+    cbar = plt.colorbar(im, ax=ax)
+    cbar.set_label("Attention Weight", rotation=270, labelpad=20)
+
+    # Set labels
+    ax.set_title(f"SAMFormer Attention Matrix - Epoch {epoch}", fontsize=14, pad=20)
+    ax.set_xlabel("Key Position (Time Step)", fontsize=12)
+    ax.set_ylabel("Query Position (Time Step)", fontsize=12)
+
+    # Add grid for better readability
+    ax.grid(False)
+
+    # Save figure
+    filename = f"samformer_attention_epoch_{epoch:03d}.png"
+    plt.tight_layout()
+    plt.savefig(save_path / filename, dpi=150, bbox_inches="tight")
+    plt.close()
+
+    return attention_patterns_mean
+
+
+def plot_samformer_attention_mean_stats(attention_patterns_per_epoch, epoch, save_path):
+    """
+    Plot attention statistics (mean attention per position, entropy, etc.)
+
+    Args:
+        model: SAMFormer model
+        x_batch: Input batch tensor
+        epoch: Current epoch number
+        save_path: Path to save the plot
+        sample_idx: Which sample from batch to visualize
+    """
+    save_path.mkdir(parents=True, exist_ok=True)
+
+    attention_patterns_mean = (
+        torch.cat(attention_patterns_per_epoch, dim=0)
+        .mean(dim=0)
+        .detach()
+        .cpu()
+        .numpy()
+    )
+
+    # Create figure with subplots
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+
+    # 1. Attention heatmap
+    ax = axes[0, 0]
+    im = ax.imshow(attention_patterns_mean, cmap="viridis", aspect="auto")
+    ax.set_title("Attention Matrix")
+    ax.set_xlabel("Key Position")
+    ax.set_ylabel("Query Position")
+    plt.colorbar(im, ax=ax)
+
+    # 2. Mean attention received (column-wise mean)
+    ax = axes[0, 1]
+    mean_attention_received = attention_patterns_mean.mean(axis=0)
+    ax.plot(mean_attention_received, linewidth=2)
+    ax.set_title("Average Attention Received per Position")
+    ax.set_xlabel("Position")
+    ax.set_ylabel("Mean Attention Weight")
+    ax.grid(True, alpha=0.3)
+
+    # 3. Mean attention given (row-wise mean)
+    ax = axes[1, 0]
+    mean_attention_given = attention_patterns_mean.mean(axis=1)
+    ax.plot(mean_attention_given, linewidth=2, color="orange")
+    ax.set_title("Average Attention Given per Position")
+    ax.set_xlabel("Position")
+    ax.set_ylabel("Mean Attention Weight")
+    ax.grid(True, alpha=0.3)
+
+    # 4. Attention entropy (measure of focus)
+    ax = axes[1, 1]
+    # Compute entropy for each query position
+    epsilon = 1e-10
+    entropy = -np.sum(
+        attention_patterns_mean * np.log(attention_patterns_mean + epsilon), axis=1
+    )
+    ax.plot(entropy, linewidth=2, color="green")
+    ax.set_title("Attention Entropy per Query Position")
+    ax.set_xlabel("Query Position")
+    ax.set_ylabel("Entropy (higher = more distributed)")
+    ax.grid(True, alpha=0.3)
+
+    plt.suptitle(f"SAMFormer Attention Analysis - Epoch {epoch}", fontsize=16, y=1.00)
+    plt.tight_layout()
+
+    filename = f"samformer_attention_stats_epoch_{epoch:03d}.png"
+    plt.savefig(save_path / filename, dpi=150, bbox_inches="tight")
+    plt.close()
+
+
+def plot_samformer_attention_variance(
+    attention_patterns_per_epoch,
+    epoch,
+    save_path,
+    max_display_size=100,
+):
+    """
+    Plot attention matrix for SAMFormer model
+
+    Args:
+        model: SAMFormer model
+        x_batch: Input batch tensor
+        epoch: Current epoch number
+        save_path: Path to save the plot
+        sample_idx: Which sample from batch to visualize
+        max_display_size: Maximum sequence length to display
+    """
+    save_path.mkdir(parents=True, exist_ok=True)
+
+    attention_patterns_var = (
+        torch.cat(attention_patterns_per_epoch, dim=0)
+        .var(dim=0)  # unbiased=True by default
+        .detach()
+        .cpu()
+        .numpy()
+    )
+
+    # Limit display size for readability
+    if attention_patterns_var.shape[0] > max_display_size:
+        attention_patterns_var = attention_patterns_var[
+            :max_display_size, :max_display_size
+        ]
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=(12, 10))
+
+    # Plot heatmap
+    im = ax.imshow(attention_patterns_var, cmap="Reds", aspect="auto")
+
+    # Add colorbar
+    cbar = plt.colorbar(im, ax=ax)
+    cbar.set_label("Attention Weight", rotation=270, labelpad=20)
+
+    # Set labels
+    ax.set_title(f"SAMFormer Attention Matrix - Epoch {epoch}", fontsize=14, pad=20)
+    ax.set_xlabel("Key Position (Time Step)", fontsize=12)
+    ax.set_ylabel("Query Position (Time Step)", fontsize=12)
+
+    # Add grid for better readability
+    ax.grid(False)
+
+    # Save figure
+    filename = f"samformer_attention_epoch_{epoch:03d}.png"
+    plt.tight_layout()
+    plt.savefig(save_path / filename, dpi=150, bbox_inches="tight")
+    plt.close()
+
+    return attention_patterns_var
+
+
 # Plotting functions
 def plot_train_val_loss(total_train_loss, loss, loss_string, epochs, plot_path):
     plot_dir = Path(plot_path)
