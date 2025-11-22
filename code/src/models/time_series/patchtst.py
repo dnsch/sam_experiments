@@ -18,7 +18,9 @@ from src.base.model import BaseModel
 """TSMixer model factory for consistent model interface."""
 
 try:
-    from lib.models.PatchTST.PatchTST_supervised.models import PatchTST as _PatchTST
+    from lib.models.PatchTST.PatchTST_supervised.models.PatchTST import (
+        Model as _PatchTST,
+    )
 except ImportError as e:
     raise ImportError(
         "PatchTST submodule not found. Make sure to initialize submodules with:\n"

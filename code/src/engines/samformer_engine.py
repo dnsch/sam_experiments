@@ -62,10 +62,6 @@ class SAMFormer_Engine(TorchEngine):
             x_batch = self._to_device(x_batch)
             y_batch = self._to_device(y_batch)
 
-            import pdb
-
-            pdb.set_trace()
-
             out_batch = self.model(x_batch, True)
 
             attention_patterns_per_batch.append(self.model.attention_pattern)

@@ -58,7 +58,8 @@ class PatchTST_Engine(TorchEngine):
 
             # PatchTST expects input shape [Batch, Input_length, Channel]
             # and outputs [Batch, Output_length, Channel]
-            out_batch = self.model(x_batch)
+            x_batch = x_batch.permute(0, 2, 1)
+            out_batch = self.model(x_batch, True)
 
             loss = self._loss_fn(out_batch, y_batch)
             mape = self._mape(out_batch, y_batch).item()
@@ -76,7 +77,7 @@ class PatchTST_Engine(TorchEngine):
                 else:
                     self._optimizer.first_step(zero_grad=True)
 
-                    out_batch = self.model(x_batch)
+                    out_batch = self.model(x_batch, True)
                     loss = self._loss_fn(out_batch, y_batch)
 
                     loss.backward()
@@ -237,8 +238,10 @@ class PatchTST_Engine(TorchEngine):
                 x_batch, y_batch = data
                 x_batch, y_batch = self._to_device(self._to_tensor([x_batch, y_batch]))
 
+                x_batch = x_batch.permute(0, 2, 1)
+
                 # PatchTST forward pass
-                out_batch = self.model(x_batch)
+                out_batch = self.model(x_batch, True)
 
                 preds.append(out_batch.cpu())
                 labels.append(y_batch.cpu())
