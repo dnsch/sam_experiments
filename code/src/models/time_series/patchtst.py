@@ -116,8 +116,8 @@ class PatchTST(BaseModel):
         self.individual = bool(configs.individual)
         self.decomposition = bool(configs.decomposition)
 
-        # Initialize weights
-        self._init_weights()
+        # # Initialize weights
+        # self._init_weights()
 
     def _init_weights(self):
         """

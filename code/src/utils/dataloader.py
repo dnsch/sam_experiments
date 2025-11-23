@@ -220,16 +220,17 @@ class SamformerDataloader:
             )
 
             # flatten target matrices
-            flatten = lambda y: y.reshape((y.shape[0], y.shape[1] * y.shape[2]))
-            y_train, y_val, y_test = flatten(y_train), flatten(y_val), flatten(y_test)
+            # flatten = lambda y: y.reshape((y.shape[0], y.shape[1] * y.shape[2]))
+            # y_train, y_val, y_test = flatten(y_train), flatten(y_val), flatten(y_test)
             # Create datasets and dataloaders
             train_dataset = LabeledDataset(x_train, y_train)
             val_dataset = LabeledDataset(x_val, y_val)
             test_dataset = LabeledDataset(x_test, y_test)
 
             train_loader = torch.utils.data.DataLoader(
-                train_dataset, batch_size=self.args.batch_size, shuffle=True
+                train_dataset, batch_size=self.args.batch_size, shuffle=False
             )
+            # TODO: change shuffle to false?
             val_loader = torch.utils.data.DataLoader(
                 val_dataset, batch_size=self.args.batch_size, shuffle=True
             )
