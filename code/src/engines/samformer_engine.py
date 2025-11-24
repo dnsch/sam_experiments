@@ -2,14 +2,17 @@ import torch
 import time
 import numpy as np
 from src.base.torch_engine import TorchEngine
-from src.utils.functions import (
+
+from src.utils.model_utils import (
+    plot_samformer_attention_mean,
+    plot_samformer_attention_mean_stats,
+    plot_samformer_attention_variance,
+)
+from src.utils.plotting import (
     plot_stats,
     branch_plot,
     plot_mean_per_day,
     mean_branch_plot,
-    plot_samformer_attention_mean,
-    plot_samformer_attention_mean_stats,
-    plot_samformer_attention_variance,
 )
 from torchmetrics.regression import MeanAbsolutePercentageError, MeanSquaredError
 

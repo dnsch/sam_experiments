@@ -113,23 +113,7 @@ def get_base_config():
     # )
 
     # Experiment
-    # seq_len denotes input history length, horizon denotes output future length
     exp_group = parser.add_argument_group("Experiment", "Experiment settings")
-    # TODO: is this really needed?
-    exp_group.add_argument(
-        "--input_dim",
-        type=int,
-        default=3,
-        metavar="N",
-        help="number of input features/dimensions",
-    )
-    exp_group.add_argument(
-        "--output_dim",
-        type=int,
-        default=1,
-        metavar="N",
-        help="number of output features/dimensions",
-    )
 
     return parser
 

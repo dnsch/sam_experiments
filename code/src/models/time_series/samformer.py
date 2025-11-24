@@ -7,7 +7,7 @@ from src.utils.samformer_utils.revin import RevIN
 from src.base.model import BaseModel
 
 
-class SAMFormerArchitecture(BaseModel):
+class SAMFormer(BaseModel):
     def __init__(
         self,
         num_channels=7,
@@ -18,7 +18,7 @@ class SAMFormerArchitecture(BaseModel):
         plot_attention=False,
         **args,
     ):
-        super(SAMFormerArchitecture, self).__init__(horizon=horizon, **args)
+        super(SAMFormer, self).__init__(horizon=horizon, **args)
         # I think there was a bug in the original implementation,
         # see: https://github.com/romilbert/samformer/issues/20
         self.revin = RevIN(num_features=num_channels)
@@ -34,6 +34,7 @@ class SAMFormerArchitecture(BaseModel):
         self.plot_attention = plot_attention
         self.attention_pattern = None
 
+    # TODO: check if this is doing the same as base model function
     def _init_weights(self):
         """Initialize weights using Xavier/Glorot Uniform (TensorFlow default)"""
         for module in [

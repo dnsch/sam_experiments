@@ -17,7 +17,7 @@ from typing import Optional, Iterator, Tuple, Dict
 import pdb
 
 # Statsforecast Dataloader
-from src.utils.functions import statsforecast_to_tensor
+from src.utils.model_utils import statsforecast_to_tensor
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -64,12 +64,14 @@ def construct_sliding_window_data(data, seq_len, pred_len, time_increment=1):
 class SamformerDataloader:
     def __init__(
         self,
-        dataset,
-        args,
-        logger,
+        dataset=None,
+        seq_len=96,
+        pred_len=96,
+        seed=1,
         time_increment=1,
         train_ratio=0.7,
         val_ratio=0.2,
+        batch_size=32,
         sequential_comparison=False,
     ):
         file_path = (
@@ -78,12 +80,11 @@ class SamformerDataloader:
         df_raw = pd.read_csv(file_path, index_col=0)
 
         n = len(df_raw)
-        seq_len = args.seq_len
-        pred_len = args.horizon
         self.seq_len = seq_len
         self.pred_len = pred_len
-        self.args = args
         self.time_increment = time_increment
+        self.seed = seed
+        self.batch_size = batch_size
 
         if dataset.startswith("ETTm"):
             train_end = 12 * 30 * 24 * 4
@@ -125,7 +126,7 @@ class SamformerDataloader:
                 splits_num=10,
                 train_end=train_end,
                 val_end=val_end,
-                seed=self.args.seed,
+                seed=self.seed,
             )
 
             # Process each split
@@ -170,13 +171,13 @@ class SamformerDataloader:
                 test_dataset = LabeledDataset(x_test, y_test)
 
                 train_loader = torch.utils.data.DataLoader(
-                    train_dataset, batch_size=self.args.batch_size, shuffle=True
+                    train_dataset, batch_size=self.batch_size, shuffle=True
                 )
                 val_loader = torch.utils.data.DataLoader(
-                    val_dataset, batch_size=self.args.batch_size, shuffle=True
+                    val_dataset, batch_size=self.batch_size, shuffle=True
                 )
                 test_loader = torch.utils.data.DataLoader(
-                    test_dataset, batch_size=self.args.batch_size, shuffle=False
+                    test_dataset, batch_size=self.batch_size, shuffle=False
                 )
                 # dataloaders_list[0]['train_loader'].dataset.x[0,0,:12]
 
@@ -228,14 +229,14 @@ class SamformerDataloader:
             test_dataset = LabeledDataset(x_test, y_test)
 
             train_loader = torch.utils.data.DataLoader(
-                train_dataset, batch_size=self.args.batch_size, shuffle=False
+                train_dataset, batch_size=self.batch_size, shuffle=False
             )
             # TODO: change shuffle to false?
             val_loader = torch.utils.data.DataLoader(
-                val_dataset, batch_size=self.args.batch_size, shuffle=True
+                val_dataset, batch_size=self.batch_size, shuffle=True
             )
             test_loader = torch.utils.data.DataLoader(
-                test_dataset, batch_size=self.args.batch_size, shuffle=False
+                test_dataset, batch_size=self.batch_size, shuffle=False
             )
 
             dataloader = {

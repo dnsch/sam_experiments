@@ -79,6 +79,7 @@ class PatchTSTConfig:
 def get_config():
     parser = get_patchtst_config()
     args = parser.parse_args()
+    args._parser = parser
 
     args.model_name = "patchtst"
 
@@ -236,9 +237,6 @@ def main():
 
         # Create PatchTST configuration
         patchtst_config = PatchTSTConfig(args)
-        import pdb
-
-        pdb.set_trace()
 
         model = PatchTST(
             patchtst_config,
@@ -262,6 +260,7 @@ def main():
         )
 
     optimizer = load_optimizer(model, args, logger)
+    model.print_model_summary(args, logger)
 
     # Setup learning rate scheduler and SAM if needed
     lr_scheduler = None

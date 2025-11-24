@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+import time
 
 from matplotlib.pyplot import plot
 
@@ -10,8 +11,9 @@ sys.path.append(str(SCRIPT_DIR.parents[2]))
 sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "pyhessian"))
 sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "loss_landscape"))
 
-from src.models.time_series.samformer import SAMFormerArchitecture
-from src.engines.samformer_engine import SAMFormer_Engine
+from src.models.time_series.samformer import SAMFormer
+
+# from src.engines.samformer_engine import SAMFormer_Engine
 from src.utils.args import get_samformer_config
 from src.utils.dataloader import (
     SamformerDataloader,
@@ -19,13 +21,15 @@ from src.utils.dataloader import (
 from src.utils.logging import get_logger
 from src.utils.samformer_utils.sam import SAM
 
-from src.utils.functions import (
-    set_seed,
-    load_optimizer,
-    compute_top_eigenvalue_and_eigenvector,
-    compute_dominant_hessian_directions,
-    save_eigenvectors_to_hdf5,
-)
+from src.utils.reproducibility import set_seed
+from src.utils.experiment_utils import run_experiments_on_dataloader_list
+from src.utils.model_utils import load_optimizer
+
+# from src.utils.functions import (
+#     compute_top_eigenvalue_and_eigenvector,
+#     compute_dominant_hessian_directions,
+#     save_eigenvectors_to_hdf5,
+# )
 
 import torch
 
@@ -39,6 +43,7 @@ from lib.optimizers.gsam.gsam.scheduler import LinearScheduler
 def get_config():
     parser = get_samformer_config()
     args = parser.parse_args()
+    args._parser = parser
 
     args.model_name = "samformer"
 
@@ -74,104 +79,24 @@ def get_config():
     return args, log_dir, logger
 
 
-def run_experiments_on_dataloader_list(
-    dataloader_instance,
-    dataloader_list,
-    args,
-    model,
-    loss_fn,
-    optimizer,
-    lr_scheduler,
-    log_dir,
-    logger,
-):
-    """
-    Execute training/evaluation for each dataloader in dataloader_list.
-
-    Args:
-        dataloader_list: List of dictionaries containing train/val/test dataloaders
-        args: Arguments object containing hyperparameters and configuration
-        model: The model to train/evaluate
-        loss_fn: Loss function
-        optimizer: Optimizer
-        lr_scheduler: Learning rate scheduler
-        log_dir: Directory for logging
-        logger: Logger object
-
-    Returns:
-        results: List of results from each experiment
-    """
-    # Get the scaler list
-    scaler_list = dataloader_instance.get_scaler_list()
-
-    results = []
-
-    # Iterate through each dataloader
-    for idx, dataloader in enumerate(dataloader_list):
-        print(f"\n{'=' * 60}")
-        print(f"Processing Experiment {idx + 1}/{len(dataloader_list)}")
-        print(f"{'=' * 60}\n")
-
-        # Get the corresponding scaler for this dataloader
-        scaler = scaler_list[idx] if idx < len(scaler_list) else None
-
-        # Create experiment-specific log directory
-        experiment_log_dir = log_dir / f"experiment_{idx}"
-
-        # Create the engine
-        engine = SAMFormer_Engine(
-            device=args.device,
-            model=model,
-            dataloader=dataloader,
-            scaler=scaler,
-            loss_fn=loss_fn,
-            lrate=args.lrate,
-            optimizer=optimizer,
-            scheduler=lr_scheduler,
-            clip_grad_value=args.clip_grad_value,
-            max_epochs=args.max_epochs,
-            patience=args.patience,
-            log_dir=experiment_log_dir,
-            logger=logger,
-            seed=args.seed,
-            batch_size=args.batch_size,
-            num_channels=dataloader["train_loader"].dataset[0][0].shape[0],
-            pred_len=args.horizon,
-            no_sam=args.no_sam,
-            use_revin=args.use_revin,
-            gsam=args.gsam,
-            plot_attention=args.plot_attention,
-        )
-
-        # Run train or test based on mode
-        if args.mode == "train":
-            result = engine.train()
-        elif args.mode == "test":
-            result = engine.evaluate(args.mode)
-        else:
-            raise ValueError(f"Unknown mode: {args.mode}")
-
-        results.append(result)
-
-        print(f"\nCompleted Experiment {idx + 1}/{len(dataloader_list)}\n")
-
-    return results
-
-
 def main():
     args, log_dir, logger = get_config()
 
     set_seed(args.seed)
 
-    dataset_name = args.dataset
+    # TODO: add this as parameter
     time_increment = 1
     # TODO: add this as parameter
-    sequential_comparison = False
+    sequential_comparison = True
     dataloader_instance = SamformerDataloader(
-        dataset_name,
-        args,
-        logger,
-        time_increment,
+        dataset=args.dataset,
+        seq_len=args.seq_len,
+        pred_len=args.horizon,
+        seed=args.seed,
+        time_increment=time_increment,
+        train_ratio=args.train_ratio,
+        val_ratio=args.val_ratio,
+        batch_size=args.batch_size,
         sequential_comparison=sequential_comparison,
     )
 
@@ -181,10 +106,7 @@ def main():
     if sequential_comparison:
         dataloader_list = dataloader_instance.get_dataloader()
 
-        model = SAMFormerArchitecture(
-            node_num=None,
-            input_dim=args.input_dim,
-            output_dim=args.output_dim,
+        model = SAMFormer(
             num_channels=dataloader_list[0]["train_loader"].dataset[0][0].shape[0],
             seq_len=args.seq_len,
             hid_dim=args.hid_dim,
@@ -194,10 +116,7 @@ def main():
         )
     else:
         dataloader = dataloader_instance.get_dataloader()
-        model = SAMFormerArchitecture(
-            node_num=None,
-            input_dim=args.input_dim,
-            output_dim=args.output_dim,
+        model = SAMFormer(
             num_channels=dataloader["train_loader"].dataset[0][0].shape[0],
             seq_len=args.seq_len,
             hid_dim=args.hid_dim,
@@ -207,6 +126,10 @@ def main():
         )
 
     optimizer = load_optimizer(model, args, logger)
+    model.print_model_summary(args, logger)
+    import pdb
+
+    pdb.set_trace()
     # TODO: add option to choose lr_scheduler
     # also lr_scheduler=None option
     from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts
@@ -287,7 +210,7 @@ def main():
         scaler = dataloader_instance.get_scaler()
         lr_scheduler = CosineAnnealingWarmRestarts(
             optimizer=optimizer,
-            T_0=5,  # Restart every 5 epochs (like max_epochs=5 in your example)
+            T_0=5,  # Restart every 5 epochs
             T_mult=1,  # Keep the same cycle length
             eta_min=1e-6,  # Minimum learning rate
             last_epoch=-1,
