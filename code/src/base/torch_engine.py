@@ -60,9 +60,13 @@ class TorchEngine(ABC):
         self._primary_metric = primary_metric  # For early stopping
 
         # Init metrics
+        # metric_names are the strings that are passed to the function
         self._metric_names = metrics if metrics is not None else []
+        # _metric_calculators is a dict that maps those names to the metric 
+        # objects
         self._metric_calculators = {}
         self._initialize_metrics()
+
 
         # Initialize tracking variables
         self._epochs = 0
@@ -75,6 +79,40 @@ class TorchEngine(ABC):
         # TODO: maybe change this, as we already have our loss which is the prim
         # metric
         self._logger.info(f"Primary metric for early stopping: {self._primary_metric}")
+
+    # ==========================================================================
+    # Initialization methods
+    # ==========================================================================
+
+    def _initialize_metrics(self):
+        """
+        Initialize metric calculators from metric name strings using the
+        get_metric_objects function from utils/metrics.py.
+        """
+        if not self._metric_names:
+            #TODO: handle empty _metric_names
+            return
+
+        try:
+            # Get metric objects from utils/metrics.py
+            metric_objects = get_metric_objects(self._metric_names)
+
+            # Move to device and store in dictionary
+            for metric_obj in metric_objects:
+                metric_name = get_metric_name_from_object(metric_obj)
+
+                # Move to device if possible
+                if hasattr(metric_obj, "to"):
+                    metric_obj = metric_obj.to(self._device)
+
+                self._metric_calculators[metric_name] = metric_obj
+
+        except ValueError as e:
+            self._logger.error(str(e))
+            raise
+        except ImportError as e:
+            self._logger.warning(str(e))
+            self._logger.warning("Additional metrics will not be available.")
 
     # ==========================================================================
     # Utility Methods
@@ -162,34 +200,6 @@ class TorchEngine(ABC):
     # Metrics
     # ==========================================================================
 
-    def _initialize_metrics(self):
-        """
-        Initialize metric calculators from metric name strings using the
-        get_metric_objects function from utils/metrics.py.
-        """
-        if not self._metric_names:
-            return
-
-        try:
-            # Get metric objects from utils/metrics.py
-            metric_objects = get_metric_objects(self._metric_names)
-
-            # Move to device and store in dictionary
-            for metric_obj in metric_objects:
-                metric_name = get_metric_name_from_object(metric_obj)
-
-                # Move to device if possible
-                if hasattr(metric_obj, "to"):
-                    metric_obj = metric_obj.to(self._device)
-
-                self._metric_calculators[metric_name] = metric_obj
-
-        except ValueError as e:
-            self._logger.error(str(e))
-            raise
-        except ImportError as e:
-            self._logger.warning(str(e))
-            self._logger.warning("Additional metrics will not be available.")
 
     def _get_metric_names(self) -> List[str]:
         """
