@@ -66,6 +66,16 @@ def get_base_config():
         help="loss functions: mse | mae | rmse | mape",
     )
 
+    model_group.add_argument(
+        "--metrics",
+        type=str,
+        default="smape",
+        # choices=["smape", "mase", "rmse", "mae", "mape"],
+        choices=["mse", "rmse", "mae", "mape"],
+        metavar="METRICS",
+        help="Additional metrics to compute: mse | mae | rmse | mape",
+    )
+
     # Dataset
     dataset_group = parser.add_argument_group("Dataset", "Dataset settings")
     dataset_group.add_argument(

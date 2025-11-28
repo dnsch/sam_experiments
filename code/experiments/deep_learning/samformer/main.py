@@ -13,7 +13,7 @@ sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "loss_landscape"))
 
 from src.models.time_series.samformer import SAMFormer
 
-# from src.engines.samformer_engine import SAMFormer_Engine
+from src.engines.samformer_engine import SAMFormer_Engine
 from src.utils.args import get_samformer_config
 from src.utils.dataloader import (
     SamformerDataloader,
@@ -87,7 +87,7 @@ def main():
     # TODO: add this as parameter
     time_increment = 1
     # TODO: add this as parameter
-    sequential_comparison = True
+    sequential_comparison = False
     dataloader_instance = SamformerDataloader(
         dataset=args.dataset,
         seq_len=args.seq_len,
@@ -127,9 +127,6 @@ def main():
 
     optimizer = load_optimizer(model, args, logger)
     model.print_model_summary(args, logger)
-    import pdb
-
-    pdb.set_trace()
     # TODO: add option to choose lr_scheduler
     # also lr_scheduler=None option
     from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts
@@ -215,13 +212,38 @@ def main():
             eta_min=1e-6,  # Minimum learning rate
             last_epoch=-1,
         )
+        # engine = SAMFormer_Engine(
+        #     device=args.device,
+        #     model=model,
+        #     dataloader=dataloader,
+        #     scaler=scaler,
+        #     # scaler=None,
+        #     loss_fn=loss_fn,
+        #     lrate=args.lrate,
+        #     optimizer=optimizer,
+        #     scheduler=lr_scheduler,
+        #     clip_grad_value=args.clip_grad_value,
+        #     # clip_grad_value=4,
+        #     max_epochs=args.max_epochs,
+        #     patience=args.patience,
+        #     log_dir=log_dir,
+        #     logger=logger,
+        #     seed=args.seed,
+        #     batch_size=args.batch_size,
+        #     num_channels=dataloader["train_loader"].dataset[0][0].shape[0],
+        #     pred_len=args.horizon,
+        #     no_sam=args.no_sam,
+        #     use_revin=args.use_revin,
+        #     gsam=args.gsam,
+        #     plot_attention=args.plot_attention,
+        # )
         engine = SAMFormer_Engine(
             device=args.device,
             model=model,
             dataloader=dataloader,
             scaler=scaler,
-            # scaler=None,
             loss_fn=loss_fn,
+            primary_metric="mse",  # Use MSE for early stopping
             lrate=args.lrate,
             optimizer=optimizer,
             scheduler=lr_scheduler,
@@ -239,6 +261,7 @@ def main():
             use_revin=args.use_revin,
             gsam=args.gsam,
             plot_attention=args.plot_attention,
+            metrics=["mse", "mape", "rmse"],  # Track these metrics
         )
 
         if args.mode == "train":
