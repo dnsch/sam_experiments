@@ -234,8 +234,8 @@ def plot_all_metrics_combined(
 
 def branch_plot(preds, labels, var_index, plot_path, title):
     # Select the specified var_index
-    preds_sensor = preds[:, :, var_index]
-    labels_sensor = labels[:, :, var_index]
+    preds_sensor = preds[:, var_index, :]
+    labels_sensor = labels[:, var_index, :]
     # Define a set of distinguishable colors
     colors = ["orange", "green", "red", "purple", "brown", "pink"]
 
@@ -292,8 +292,8 @@ def branch_plot(preds, labels, var_index, plot_path, title):
 
 def mean_branch_plot(preds, labels, plot_path, title):
     # Select the specified sensor
-    preds_sensor = preds.mean(dim=2)
-    labels_sensor = labels.mean(dim=2)
+    preds_sensor = preds.mean(dim=1)
+    labels_sensor = labels.mean(dim=1)
     # Define a set of distinguishable colors
     colors = ["orange", "green", "red", "purple", "brown", "pink"]
 
@@ -305,6 +305,8 @@ def mean_branch_plot(preds, labels, plot_path, title):
     for timepoint_idx in range(labels_sensor.shape[0]):
         labels_entry = labels_sensor[timepoint_idx, :]
         preds_entry = preds_sensor[timepoint_idx, :]
+        # labels_entry = labels_sensor[:, timepoint_idx]
+        # preds_entry = preds_sensor[:, timepoint_idx]
 
         plt.plot(
             range(timepoint_idx, len(labels_entry) + timepoint_idx),

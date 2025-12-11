@@ -63,6 +63,7 @@ class SAMFormer(BaseModel):
         keys = self.compute_keys(x_norm)  # (n, D, hid_dim)
         values = self.compute_values(x_norm)  # (n, D, L)
 
+        # Save attention_patterns
         if self.plot_attention:
             att_score, attention_pattern = scaled_dot_product_attention(
                 queries, keys, values, plot_attention=self.plot_attention

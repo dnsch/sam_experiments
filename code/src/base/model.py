@@ -33,6 +33,7 @@ class BaseModel(nn.Module):
                 nn.init.ones_(module.weight)
                 nn.init.zeros_(module.bias)
 
+    # TODO: get_experiment_summary might be more fitting
     def get_model_summary(self, args):
         """
         Generate a formatted summary using cli args

@@ -447,11 +447,12 @@ def _add_sam_args(parser):
     )
 
     sam_group.add_argument(
-        "--no_sam",
+        "--sam",
         action="store_true",
         default=False,
-        help="don't use Sharpness Aware Minimization",
+        help="use Sharpness Aware Minimization",
     )
+
     sam_group.add_argument(
         "--rho",
         type=float,

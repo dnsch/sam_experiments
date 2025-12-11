@@ -28,6 +28,8 @@ class TorchEngine(ABC):
         loss_fn,
         lrate,
         optimizer,
+        sam,
+        gsam,
         scheduler,
         clip_grad_value,
         max_epochs,
@@ -37,7 +39,6 @@ class TorchEngine(ABC):
         seed,
         timeout_hours=6,
         enable_plotting=True,
-        primary_metric="loss",  # Metric to use for early stopping
         metrics=None,
     ):
         # Initialize vars
@@ -48,6 +49,9 @@ class TorchEngine(ABC):
         self._loss_fn = loss_fn
         self._lrate = lrate
         self._optimizer = optimizer
+        # Sharpness Aware Minimization
+        self._sam = sam
+        self._gsam = gsam
         self._lr_scheduler = scheduler
         self._clip_grad_value = clip_grad_value
         self._max_epochs = max_epochs
@@ -55,18 +59,15 @@ class TorchEngine(ABC):
         self._save_path = log_dir
         self._logger = logger
         self._seed = seed
+        # TODO:
+        # add as argument to args
         self._timeout_hours = timeout_hours
         self._enable_plotting = enable_plotting
-        self._primary_metric = primary_metric  # For early stopping
 
         # Init metrics
-        # metric_names are the strings that are passed to the function
-        self._metric_names = metrics if metrics is not None else []
-        # _metric_calculators is a dict that maps those names to the metric 
+        # _metrics is a dict that maps metric names to the metric
         # objects
-        self._metric_calculators = {}
-        self._initialize_metrics()
-
+        self._metrics = self._initialize_metrics(metrics)
 
         # Initialize tracking variables
         self._epochs = 0
@@ -76,43 +77,6 @@ class TorchEngine(ABC):
 
         self._logger.info(f"The number of parameters: {self.model.param_num()}")
         self._logger.info(f"Loss function: {self._loss_fn.__class__.__name__}")
-        # TODO: maybe change this, as we already have our loss which is the prim
-        # metric
-        self._logger.info(f"Primary metric for early stopping: {self._primary_metric}")
-
-    # ==========================================================================
-    # Initialization methods
-    # ==========================================================================
-
-    def _initialize_metrics(self):
-        """
-        Initialize metric calculators from metric name strings using the
-        get_metric_objects function from utils/metrics.py.
-        """
-        if not self._metric_names:
-            #TODO: handle empty _metric_names
-            return
-
-        try:
-            # Get metric objects from utils/metrics.py
-            metric_objects = get_metric_objects(self._metric_names)
-
-            # Move to device and store in dictionary
-            for metric_obj in metric_objects:
-                metric_name = get_metric_name_from_object(metric_obj)
-
-                # Move to device if possible
-                if hasattr(metric_obj, "to"):
-                    metric_obj = metric_obj.to(self._device)
-
-                self._metric_calculators[metric_name] = metric_obj
-
-        except ValueError as e:
-            self._logger.error(str(e))
-            raise
-        except ImportError as e:
-            self._logger.warning(str(e))
-            self._logger.warning("Additional metrics will not be available.")
 
     # ==========================================================================
     # Utility Methods
@@ -161,15 +125,14 @@ class TorchEngine(ABC):
     # Batch preparation
     # ==========================================================================
 
-    # @abstractmethod
-    # def _prepare_batch(self, batch) -> Tuple[torch.Tensor, torch.Tensor]:
-    #     """
-    #     Prepare batch data for the model, as models might expect different
-    #     batch dimension formats
-    #     Default dataloader returns batches as batchsize x channels x seq_len
-    #     Returns: (input_tensor, target_tensor)
-    #     """
-    #     pass
+    def _get_train_loader(self):
+        """Get training data loader."""
+        return self._dataloader["train_loader"]
+
+    def _get_dataloader(self, key: str):
+        """Get data loader by key."""
+        return self._dataloader[key]
+
     def _prepare_batch(self, batch) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Prepare batch data for the model
@@ -181,25 +144,49 @@ class TorchEngine(ABC):
         x_batch, y_batch = batch
         return x_batch, y_batch
 
-    # TODO: I think we won't need that, can't think of any future use case
-    # currently:
-    # EDIT: keep s.t. it's clearer what's happening in the train loop
-
-    # @abstractmethod
-    def _forward_pass(
-        self,
-        x_batch: torch.Tensor,
-    ) -> torch.Tensor:
-        """
-        Execute forward pass through the model.
-        """
-        out_batch = self.model(x_batch, False)
-        return out_batch
-
     # ==========================================================================
     # Metrics
     # ==========================================================================
 
+    def _initialize_metrics(
+        self, metric_names: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Initialize metric calculators from metric name strings using the
+        get_metric_objects function from utils/metrics.py.
+
+        Returns:
+            Dict[str, Any]: Dictionary mapping metric names to metric objects
+        """
+        metric_names = metric_names if metric_names is not None else []
+
+        if not metric_names:
+            return {}
+
+        try:
+            # Get metric objects from utils/metrics.py
+            metric_objects = get_metric_objects(metric_names)
+
+            metric_calculators = {}
+            # Move to device and store in dictionary
+            for metric_obj in metric_objects:
+                metric_name = get_metric_name_from_object(metric_obj)
+
+                # Move to device if possible
+                if hasattr(metric_obj, "to"):
+                    metric_obj = metric_obj.to(self._device)
+
+                metric_calculators[metric_name] = metric_obj
+
+            return metric_calculators
+
+        except ValueError as e:
+            self._logger.error(str(e))
+            raise
+        except ImportError as e:
+            self._logger.warning(str(e))
+            self._logger.warning("Additional metrics will not be available.")
+            return {}
 
     def _get_metric_names(self) -> List[str]:
         """
@@ -210,7 +197,7 @@ class TorchEngine(ABC):
             List of metric names, e.g., ['mse', 'mape', 'rmse', 'mae']
         """
         metric_names = [self._get_loss_name()]  # Always include loss
-        metric_names.extend(self._metric_calculators.keys())  # Add additional metrics
+        metric_names.extend(self._metrics.keys())  # Add additional metrics
         return metric_names
 
     def _get_loss_name(self) -> str:
@@ -220,6 +207,8 @@ class TorchEngine(ABC):
         """
         # Try to infer from loss function class name
         loss_class_name = self._loss_fn.__class__.__name__.lower()
+        # TODO: extend to other losses
+        # bad design, will return mse for rmse?
         if "mse" in loss_class_name:
             return "mse"
         elif "mae" in loss_class_name or "l1" in loss_class_name:
@@ -228,36 +217,15 @@ class TorchEngine(ABC):
             return "huber"
         return "loss"  # Default fallback
 
-    # ==========================================================================
-    # Optional Hook Methods
-    # ==========================================================================
-
     def _compute_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        """Compute loss. Override for custom loss computation."""
+        """Compute loss"""
         return self._loss_fn(pred, target)
-
-    def _optimizer_step(
-        self,
-        loss: torch.Tensor,
-    ):
-        """
-        Execute optimizer step. Override for custom optimizers (e.g., SAM).
-        Default: standard gradient descent.
-        """
-        self._optimizer.zero_grad()
-        loss.backward()
-        if self._clip_grad_value != 0:
-            torch.nn.utils.clip_grad_norm_(
-                self.model.parameters(), self._clip_grad_value
-            )
-        self._optimizer.step()
 
     def _compute_metrics(
         self, pred: torch.Tensor, target: torch.Tensor
     ) -> Dict[str, float]:
         """
         Compute all metrics: loss + additional metrics from the metrics list.
-        Override for custom metric computation.
 
         Returns:
             Dictionary with metric_name: value pairs
@@ -270,9 +238,9 @@ class TorchEngine(ABC):
         metrics[loss_name] = loss.item()
 
         # Compute additional metrics
-        for metric_name, metric_calculator in self._metric_calculators.items():
+        for metric_name, metric_object in self._metrics.items():
             try:
-                metric_value = metric_calculator(pred, target)
+                metric_value = metric_object(pred, target)
                 # TODO: test if this works
                 # Handle both tensor and scalar returns
                 if isinstance(metric_value, torch.Tensor):
@@ -283,6 +251,299 @@ class TorchEngine(ABC):
                 metrics[metric_name] = float("nan")
 
         return metrics
+
+    def _compute_validation_metrics(
+        self, preds: torch.Tensor, labels: torch.Tensor
+    ) -> Dict[str, float]:
+        """Compute validation metrics."""
+        return self._compute_metrics(preds, labels)
+
+    def _compute_test_metrics(
+        self, preds: torch.Tensor, labels: torch.Tensor
+    ) -> Dict[str, float]:
+        """
+        Compute test metrics and log detailed results.
+        Override for custom test evaluation.
+        """
+        metrics = self._compute_metrics(preds, labels)
+
+        # Log all metrics
+        for name, value in metrics.items():
+            self._logger.info(f"Test {name.upper()}: {value:.4f}")
+
+        # Per-horizon metrics
+        horizon_metrics = {metric: [] for metric in self._metrics}
+
+        for i in range(self.model.horizon):
+            horizon_preds = preds[:, :, i].contiguous()
+            horizon_labels = labels[:, :, i].contiguous()
+
+            # Compute metrics for this horizon
+            horizon_result = self._compute_metrics(horizon_preds, horizon_labels)
+
+            # Log horizon metrics
+            metric_str = ", ".join(
+                [f"{k.upper()}: {v:.4f}" for k, v in horizon_result.items()]
+            )
+            self._logger.info(f"Horizon {i + 1}, {metric_str}")
+
+            # Store for averaging
+            for metric_name, value in horizon_result.items():
+                if isinstance(value, torch.Tensor):
+                    value = value.item()
+                horizon_metrics[metric_name].append(value)
+
+        # Log average across horizons
+        avg_metrics = {f"avg_{k}": np.mean(v) for k, v in horizon_metrics.items()}
+        avg_str = ", ".join([f"{k.upper()}: {v:.4f}" for k, v in avg_metrics.items()])
+        self._logger.info(f"Average per horizon: {avg_str}")
+
+        if self._enable_plotting:
+            self._plot_test_results(preds, labels)
+
+        return metrics
+
+    # Logging
+    def _log_epoch_metrics(
+        self,
+        epoch: int,
+        train_metrics: Dict[str, float],
+        val_metrics: Dict[str, float],
+        train_time: float,
+        val_time: float,
+        lr: float,
+    ):
+        """Log metrics for an epoch in a generic way."""
+        # Build metric strings
+        train_str = ", ".join(
+            [f"Train {k.upper()}: {v:.4f}" for k, v in train_metrics.items()]
+        )
+        val_str = ", ".join(
+            [f"Val {k.upper()}: {v:.4f}" for k, v in val_metrics.items()]
+        )
+
+        message = (
+            f"Epoch: {epoch + 1:03d}, \n"
+            f"{train_str}, \n"
+            f"{val_str}, \n"
+            f"Train Time: {train_time:.4f}s, "
+            f"Val Time: {val_time:.4f}s, \n"
+            f"LR: {lr:.4e} \n"
+            "----------"
+        )
+        self._logger.info(message)
+
+    # ==========================================================================
+    # Plotting functions
+    # ==========================================================================
+
+    def _plot_training_curves(self, metrics: TrainingMetrics):
+        """Plot training curves for all tracked metrics."""
+        try:
+            from src.utils.plotting import plot_stats
+
+            # Individual plots
+            plot_stats(
+                metrics=metrics,
+                last_epoch=self._epochs,
+                plot_path=self._plot_path,
+            )
+
+            self._logger.info("Training curves plotted successfully")
+        except Exception as e:
+            self._logger.warning(f"Plotting failed: {e}")
+
+    def _plot_test_results(self, preds, labels):
+        """Generate test result plots."""
+        try:
+            from src.utils.plotting import (
+                plot_mean_per_day,
+                mean_branch_plot,
+                branch_plot,
+            )
+
+            # Mean predictions per horizon
+            per_day_preds = [preds[:, :, i].mean() for i in range(self.model.horizon)]
+            per_day_labels = [labels[:, :, i].mean() for i in range(self.model.horizon)]
+
+            plot_mean_per_day(
+                per_day_preds,
+                per_day_labels,
+                self._plot_path,
+                "mean_per_day_performance_plot.png",
+            )
+
+            # Branch plots for different sample sizes
+            for n_samples, label in [(5, "first_5"), (100, "first_100")]:
+                mean_branch_plot(
+                    preds[:n_samples, :, :],
+                    labels[:n_samples, :, :],
+                    self._plot_path,
+                    f"mean_performance_plot_{label}",
+                )
+
+                var_index = 0
+                branch_plot(
+                    preds[:n_samples, :, :],
+                    labels[:n_samples, :, :],
+                    var_index,
+                    self._plot_path,
+                    f"sensor_{var_index}_branch_plot_{label}.png",
+                )
+
+        except Exception as e:
+            self._logger.warning(f"Test plotting failed: {e}")
+
+    # ==========================================================================
+    # Training Functions
+    # ==========================================================================
+
+    # Added function for better readibility.
+    def _forward_pass(
+        self,
+        x_batch: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Execute forward pass through the model.
+        """
+        out_batch = self.model(x_batch, False)
+        return out_batch
+
+    def _optimizer_step(self, loss: torch.Tensor, x_batch, y_batch):
+        # TODO: change the var names s.t. they're consistent with the ones in the
+        # batch loop
+        """
+        Execute optimizer step.
+        Default: standard gradient descent.
+        """
+
+        if self._sam:
+            # SAM optimizer
+            loss.backward()
+            self._optimizer.first_step(zero_grad=True)
+
+            # TODO: maybe remove flatten output
+            out_batch = self.model(x_batch, False)
+            loss = self._compute_loss(out_batch, y_batch)
+
+            loss.backward()
+            if self._clip_grad_value != 0:
+                torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(), self._clip_grad_value
+                )
+            self._optimizer.second_step(zero_grad=True)
+
+        elif self._gsam:
+            # GSAM optimizer
+            loss.backward()
+            self._optimizer.set_closure(self._loss_fn, x_batch, y_batch)
+            out_batch, loss = self._optimizer.step()
+            self._lr_scheduler.step()
+            self._optimizer.update_rho_t()
+        else:
+            # Default (no SAM)
+            self._optimizer.zero_grad()
+            loss.backward()
+            if self._clip_grad_value != 0:
+                torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(), self._clip_grad_value
+                )
+            self._optimizer.step()
+
+    # TODO: test gsam
+    def _get_current_lr(self) -> float:
+        """Get current LR (handles GSAM special case)."""
+        if self._gsam:
+            return self._lr_scheduler._last_lr[0]
+        # No _lr_scheduler
+        # if self._lr_scheduler is None:
+        else:
+            return self._lrate
+
+    def _step_scheduler(self):
+        """Step the learning rate scheduler."""
+        if self._lr_scheduler:
+            self._lr_scheduler.step()
+
+    # ==========================================================================
+    # Training Loop checks
+    # ==========================================================================
+
+    # TODO: change name
+    def _should_save_epoch_model(self, epoch: int) -> bool:
+        """Determine if model should be saved this epoch."""
+        return True
+
+    def _check_early_stopping(
+        self, val_metrics: Dict[str, float], min_metric: float, wait: int, epoch: int
+    ) -> Tuple[bool, float, int]:
+        """
+        Check early stopping criteria based on validation metrics.
+
+        Args:
+            val_metrics: Dictionary of validation metrics
+            min_metric: Current best metric value
+            wait: Current patience counter
+            epoch: Current epoch number
+
+        Returns:
+            Tuple of (should_stop, updated_min_metric, updated_wait)
+
+            - should_stop: True if early stopping criteria met
+            - updated_min_metric: New best metric value
+
+            - updated_wait: New patience counter
+
+        """
+        loss_name = self._get_loss_name()
+        current_metric = val_metrics.get(loss_name, np.inf)
+
+        if current_metric < min_metric:
+            self.save_model(self._save_path)
+            self._logger.info(
+                f"Val {loss_name} decreased from {min_metric:.4f} to {current_metric:.4f} \n"
+                f"----------"
+            )
+            min_metric = current_metric
+            wait = 0
+            should_stop = False
+        else:
+            wait += 1
+            if wait >= self._patience:
+                self._logger.info(
+                    f"Early stop at epoch {epoch + 1}, {loss_name} = {min_metric:.6f}"
+                )
+                self._epochs = epoch + 1
+                should_stop = True
+            else:
+                should_stop = False
+
+        return should_stop, min_metric, wait
+
+    def _check_timeout(self, start_time: float, epoch: int) -> bool:
+        """
+        Check if training timeout has been reached.
+
+        Args:
+            start_time: Training start timestamp
+            epoch: Current epoch number
+
+        Returns:
+            True if timeout reached and training should stop
+        """
+        elapsed_hours = (time.time() - start_time) / 3600
+
+        if elapsed_hours > self._timeout_hours:
+            self._logger.info(f"Timeout reached at epoch {epoch + 1}")
+            self._epochs = epoch + 1
+            return True
+
+        return False
+
+    # ==========================================================================
+    # Optional Hook Methods
+    # ==========================================================================
+    # Override these if you need custom behaviour.
 
     def _on_epoch_start(self, epoch: int):
         """
@@ -300,21 +561,17 @@ class TorchEngine(ABC):
         """
         pass
 
-    def _get_current_lr(self) -> float:
-        """Get current learning rate."""
-        if self._lr_scheduler is None:
-            return self._lrate
-        return self._lr_scheduler.get_last_lr()[0]
+    # TODO: change path if it changes
+    def _on_forward_pass(self):
+        """
+        Hook called after the forward pass during training.
 
-    def _step_scheduler(self):
-        """Step the learning rate scheduler."""
-        if self._lr_scheduler:
-            self._lr_scheduler.step()
-
-    # TODO: change name
-    def _should_save_epoch_model(self, epoch: int) -> bool:
-        """Determine if model should be saved this epoch."""
-        return True
+        Override in subclasses to capture model internals such as attention patterns
+        (first, you need a way to capture these, see the models/time_series/samformer
+        model for reference)
+        or other diagnostic information for visualization or analysis purposes.
+        """
+        pass
 
     # ==========================================================================
     # Training Loop
@@ -337,6 +594,11 @@ class TorchEngine(ABC):
             # Forward pass
             pred = self._forward_pass(x_batch)
 
+            # Hook that allows to capture model internals
+            # in our case, we use it to capture the attention patterns after
+            # the forward pass
+            self._on_forward_pass()
+
             # Compute loss
             loss = self._compute_loss(pred, y_batch)
 
@@ -356,7 +618,7 @@ class TorchEngine(ABC):
     def train(self) -> Optional[float]:
         """
         Main training loop.
-        Returns: primary metric value on test set
+        Returns: loss value on test set
         """
         self._logger.info("Start training!")
         self._logger.info(f"Tracking metrics: {self._get_metric_names()}")
@@ -398,38 +660,15 @@ class TorchEngine(ABC):
                 model_list_save_path = self._save_path / "saved_models"
                 self.save_current_model(model_list_save_path, epoch)
 
-            # TODO: maybe put this in own function -> better readability
-            # Early stopping based on primary metric
-            # something like
-            # check_early_stopping()
-            # from here:
-            current_metric = val_metrics.get(
-                self._primary_metric, val_metrics.get(self._get_loss_name(), np.inf)
+            # Check early stopping
+            should_stop, min_metric, wait = self._check_early_stopping(
+                val_metrics, min_metric, wait, epoch
             )
+            if should_stop:
+                break
 
-            if current_metric < min_metric:
-                self.save_model(self._save_path)
-                self._logger.info(
-                    f"Val {self._primary_metric} decreased from {min_metric:.4f} to {current_metric:.4f} \n"
-                    f"----------"
-                )
-                min_metric = current_metric
-                wait = 0
-            else:
-                wait += 1
-                if wait == self._patience:
-                    self._logger.info(
-                        f"Early stop at epoch {epoch + 1}, {self._primary_metric} = {min_metric:.6f}"
-                    )
-                    self._epochs = epoch + 1
-                    break
-            # to here.
-
-            # TODO: check_timeout()
-            # Timeout check
-            if self._check_timeout(start_time):
-                self._logger.info(f"Timeout reached at epoch {epoch + 1}")
-                self._epochs = epoch + 1
+            # Check timeout
+            if self._check_timeout(start_time, epoch):
                 break
 
             self._epochs = epoch + 1
@@ -444,56 +683,6 @@ class TorchEngine(ABC):
         # Final evaluation
         test_result = self.evaluate("test")
         return test_result
-
-    def _log_epoch_metrics(
-        self,
-        epoch: int,
-        train_metrics: Dict[str, float],
-        val_metrics: Dict[str, float],
-        train_time: float,
-        val_time: float,
-        lr: float,
-    ):
-        """Log metrics for an epoch in a generic way."""
-        # Build metric strings
-        train_str = ", ".join(
-            [f"Train {k.upper()}: {v:.4f}" for k, v in train_metrics.items()]
-        )
-        val_str = ", ".join(
-            [f"Val {k.upper()}: {v:.4f}" for k, v in val_metrics.items()]
-        )
-
-        message = (
-            f"Epoch: {epoch + 1:03d}, \n"
-            f"{train_str}, \n"
-            f"{val_str}, \n"
-            f"Train Time: {train_time:.4f}s, "
-            f"Val Time: {val_time:.4f}s, \n"
-            f"LR: {lr:.4e} \n"
-            "----------"
-        )
-        self._logger.info(message)
-
-    def _check_timeout(self, start_time: float) -> bool:
-        """Check if training timeout has been reached."""
-        elapsed_hours = (time.time() - start_time) / 3600
-        return elapsed_hours > self._timeout_hours
-
-    def _plot_training_curves(self, metrics: TrainingMetrics):
-        """Plot training curves for all tracked metrics."""
-        try:
-            from src.utils.plotting import plot_stats
-
-            # Individual plots
-            plot_stats(
-                metrics=metrics,
-                last_epoch=self._epochs,
-                plot_path=self._plot_path,
-            )
-
-            self._logger.info("Training curves plotted successfully")
-        except Exception as e:
-            self._logger.warning(f"Plotting failed: {e}")
 
     # ==========================================================================
     # Evaluation
@@ -532,32 +721,3 @@ class TorchEngine(ABC):
             return self._compute_validation_metrics(preds, labels)
         elif mode == "test":
             return self._compute_test_metrics(preds, labels)
-
-    def _compute_validation_metrics(
-        self, preds: torch.Tensor, labels: torch.Tensor
-    ) -> Dict[str, float]:
-        """Compute validation metrics."""
-        return self._compute_metrics(preds, labels)
-
-    def _compute_test_metrics(
-        self, preds: torch.Tensor, labels: torch.Tensor
-    ) -> Dict[str, float]:
-        """
-        Compute test metrics and log detailed results.
-        Override for custom test evaluation.
-        """
-        metrics = self._compute_metrics(preds, labels)
-
-        # Log all metrics
-        for name, value in metrics.items():
-            self._logger.info(f"Test {name.upper()}: {value:.4f}")
-
-        return metrics
-
-    def _get_train_loader(self):
-        """Get training data loader."""
-        return self._dataloader["train_loader"]
-
-    def _get_dataloader(self, key: str):
-        """Get data loader by key."""
-        return self._dataloader[key]

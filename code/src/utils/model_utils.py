@@ -11,6 +11,9 @@ import torch.nn.functional as F
 
 
 # Samformer Functions
+# TODO: this should not be reserved to SAMFormer
+# put it somewhere s.t. it becomes clear that it can be used with other
+# architectures aswell
 def load_optimizer(model, args, logger):
     """
     Loads the optimizer based on the choice provided in args.
@@ -18,23 +21,23 @@ def load_optimizer(model, args, logger):
     try:
         optimizer_class = getattr(torch.optim, args.optimizer)
 
-        if not args.no_sam:
-            if args.gsam:
-                logger.info(f"Optimizer class: {optimizer_class}")
-                optimizer = optimizer_class(
-                    model.parameters(), lr=args.lrate, weight_decay=args.wdecay
-                )
-                logger.info(optimizer)
-                return optimizer
-            else:
-                logger.info(f"Optimizer class: {optimizer_class}")
-                return optimizer_class
-
-        optimizer = optimizer_class(
-            model.parameters(), lr=args.lrate, weight_decay=args.wdecay
-        )
-        logger.info(optimizer)
-        return optimizer
+        if args.sam:
+            logger.info(f"Optimizer class: {optimizer_class}")
+            return optimizer_class
+        elif args.gsam:
+            logger.info(f"Optimizer class: {optimizer_class}")
+            optimizer = optimizer_class(
+                model.parameters(), lr=args.lrate, weight_decay=args.wdecay
+            )
+            logger.info(optimizer)
+            return optimizer
+        else:
+            # no Sharpness Aware Minimization
+            optimizer = optimizer_class(
+                model.parameters(), lr=args.lrate, weight_decay=args.wdecay
+            )
+            logger.info(optimizer)
+            return optimizer
     except AttributeError:
         raise ValueError(f"Optimizer '{args.optimizer}' not found in torch.optim.")
 
@@ -79,6 +82,8 @@ class AttentionExtractor:
         return attention_weights
 
 
+# TODO: change name, would make sense to extract attention patterns for all
+# transformer architectures
 def plot_samformer_attention_mean(
     attention_patterns_per_epoch,
     epoch,
@@ -98,13 +103,6 @@ def plot_samformer_attention_mean(
     """
     save_path.mkdir(parents=True, exist_ok=True)
 
-    # attention_patterns_mean = (
-    #     torch.cat(attention_patterns_per_epoch, dim=0)
-    #     .mean(dim=0)
-    #     .detach()
-    #     .cpu()
-    #     .numpy()
-    # )
     attention_patterns_mean = (
         attention_patterns_per_epoch[-2].mean(dim=0).detach().cpu().numpy()
     )
@@ -119,7 +117,6 @@ def plot_samformer_attention_mean(
     fig, ax = plt.subplots(figsize=(12, 10))
 
     # Plot heatmap
-    # im = ax.imshow(attention_patterns_mean, vmin=0, vmax=1, cmap="Reds", aspect="auto")
     im = ax.imshow(attention_patterns_mean, vmin=0, vmax=1, cmap="Reds", aspect="auto")
 
     # Add colorbar
