@@ -144,6 +144,18 @@ class TorchEngine(ABC):
         x_batch, y_batch = batch
         return x_batch, y_batch
 
+    # TODO: finish this
+    def _prepare_test_batch(self, batch) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Prepare batch data for the model
+        Default dataloader returns batches as batchsize x channels x seq_len
+        If model expects different input, override this function with necessary
+        permutations
+        Returns: (input_tensor, target_tensor)
+        """
+        x_batch, y_batch = batch
+        return x_batch, y_batch
+
     # ==========================================================================
     # Metrics
     # ==========================================================================
@@ -237,10 +249,16 @@ class TorchEngine(ABC):
         loss = self._compute_loss(pred, target)
         metrics[loss_name] = loss.item()
 
+        import pdb
+
+        # pdb.set_trace()
         # Compute additional metrics
         for metric_name, metric_object in self._metrics.items():
             try:
+                pred = pred
+                target = target
                 metric_value = metric_object(pred, target)
+
                 # TODO: test if this works
                 # Handle both tensor and scalar returns
                 if isinstance(metric_value, torch.Tensor):
@@ -275,6 +293,7 @@ class TorchEngine(ABC):
         horizon_metrics = {metric: [] for metric in self._metrics}
 
         for i in range(self.model.horizon):
+            horizon_preds, horizon_labels = _prepare_test_batch
             horizon_preds = preds[:, :, i].contiguous()
             horizon_labels = labels[:, :, i].contiguous()
 
@@ -592,7 +611,7 @@ class TorchEngine(ABC):
             y_batch = self._to_device(y_batch)
 
             # Forward pass
-            pred = self._forward_pass(x_batch)
+            pred = self._forward_pass(x_batch).contiguous()
 
             # Hook that allows to capture model internals
             # in our case, we use it to capture the attention patterns after

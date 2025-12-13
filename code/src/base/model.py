@@ -34,6 +34,7 @@ class BaseModel(nn.Module):
                 nn.init.zeros_(module.bias)
 
     # TODO: get_experiment_summary might be more fitting
+    # might also make sense to put this somewhere else
     def get_model_summary(self, args):
         """
         Generate a formatted summary using cli args

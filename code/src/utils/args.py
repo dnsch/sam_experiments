@@ -219,6 +219,19 @@ def _add_deep_learning_args(parser):
         help="use reversible instance normalization",
     )
 
+    deep_learning_group.add_argument(
+        "--revin_affine",
+        action="store_true",
+        default=False,
+        help="use affine transformation in RevIN",
+    )
+    deep_learning_group.add_argument(
+        "--revin_subtract_last",
+        action="store_true",
+        default=False,
+        help="subtract last value in RevIN (default: subtract mean)",
+    )
+
     # Add to existing Experiment group
     exp_group = _get_argument_group(parser, "Experiment")
     if exp_group:
@@ -597,14 +610,16 @@ def _add_patchtst_args(parser):
         "PatchTST Model", "PatchTST-specific model architecture hyperparameters"
     )
 
-    # Core PatchTST parameters
+    # Core sequence parameters
     patchtst_group.add_argument(
-        "--num_channels",
+        "--enc_in",
         type=int,
         default=7,
         metavar="N",
-        help="number of input channels (enc_in)",
+        help="number of input channels (encoder input size)",
     )
+
+    # Transformer architecture parameters
     patchtst_group.add_argument(
         "--e_layers",
         type=int,
@@ -634,6 +649,22 @@ def _add_patchtst_args(parser):
         help="dimension of feedforward network",
     )
     patchtst_group.add_argument(
+        "--d_k",
+        type=int,
+        default=None,
+        metavar="N",
+        help="dimension of keys (default: d_model // n_heads)",
+    )
+    patchtst_group.add_argument(
+        "--d_v",
+        type=int,
+        default=None,
+        metavar="N",
+        help="dimension of values (default: d_model // n_heads)",
+    )
+
+    # Dropout parameters
+    patchtst_group.add_argument(
         "--dropout",
         type=float,
         default=0.05,
@@ -654,6 +685,15 @@ def _add_patchtst_args(parser):
         metavar="RATE",
         help="head dropout rate",
     )
+    patchtst_group.add_argument(
+        "--attn_dropout",
+        type=float,
+        default=0.0,
+        metavar="RATE",
+        help="attention dropout rate",
+    )
+
+    # Patch parameters
     patchtst_group.add_argument(
         "--patch_len",
         type=int,
@@ -676,30 +716,36 @@ def _add_patchtst_args(parser):
         metavar="TYPE",
         help="padding type for patches",
     )
-    patchtst_group.add_argument(
-        "--revin",
-        type=int,
-        default=1,
-        choices=[0, 1],
-        metavar="BOOL",
-        help="use RevIN normalization (1=True, 0=False)",
-    )
-    patchtst_group.add_argument(
-        "--affine",
-        type=int,
-        default=0,
-        choices=[0, 1],
-        metavar="BOOL",
-        help="RevIN affine transformation (1=True, 0=False)",
-    )
-    patchtst_group.add_argument(
-        "--subtract_last",
-        type=int,
-        default=0,
-        choices=[0, 1],
-        metavar="BOOL",
-        help="subtract last value (1=True) or mean (0=False)",
-    )
+
+    # RevIN (Reversible Instance Normalization) parameters
+    # patchtst_group.add_argument(
+    #     "--revin",
+    #     type=int,
+    #     default=1,
+    #     choices=[0, 1],
+    #     metavar="BOOL",
+    #     help="use RevIN normalization (1=True, 0=False)",
+    # )
+    # patchtst_group.add_argument(
+    #     "--affine",
+    #     type=int,
+    #     default=0,
+    #     choices=[0, 1],
+    #     metavar="BOOL",
+    #     help="RevIN affine transformation (1=True, 0=False)",
+    # )
+    # patchtst_group.add_argument(
+    #     "--subtract_last",
+    #     type=int,
+    #     default=0,
+    #     choices=[0, 1],
+    #     metavar="BOOL",
+    #     help="subtract last value (1=True) or mean (0=False)",
+    # )
+
+    # ============================================================================
+    # Decomposition parameters
+    # ============================================================================
     patchtst_group.add_argument(
         "--decomposition",
         type=int,
@@ -715,6 +761,10 @@ def _add_patchtst_args(parser):
         metavar="N",
         help="kernel size for decomposition",
     )
+
+    # ============================================================================
+    # Channel-specific parameters
+    # ============================================================================
     patchtst_group.add_argument(
         "--individual",
         type=int,
@@ -724,28 +774,16 @@ def _add_patchtst_args(parser):
         help="individual head for each channel (1=True, 0=False)",
     )
 
+    # ============================================================================
     # Additional transformer parameters
-    patchtst_group.add_argument(
-        "--max_seq_len",
-        type=int,
-        default=1024,
-        metavar="N",
-        help="maximum sequence length",
-    )
-    patchtst_group.add_argument(
-        "--d_k",
-        type=int,
-        default=None,
-        metavar="N",
-        help="dimension of keys (default: d_model // n_heads)",
-    )
-    patchtst_group.add_argument(
-        "--d_v",
-        type=int,
-        default=None,
-        metavar="N",
-        help="dimension of values (default: d_model // n_heads)",
-    )
+    # ============================================================================
+    # patchtst_group.add_argument(
+    #     "--max_seq_len",
+    #     type=int,
+    #     default=1024,
+    #     metavar="N",
+    #     help="maximum sequence length",
+    # )
     patchtst_group.add_argument(
         "--norm",
         type=str,
@@ -755,13 +793,6 @@ def _add_patchtst_args(parser):
         help="normalization type",
     )
     patchtst_group.add_argument(
-        "--attn_dropout",
-        type=float,
-        default=0.0,
-        metavar="RATE",
-        help="attention dropout rate",
-    )
-    patchtst_group.add_argument(
         "--activation",
         type=str,
         default="gelu",
@@ -769,6 +800,10 @@ def _add_patchtst_args(parser):
         metavar="ACTIVATION",
         help="activation function",
     )
+
+    # ============================================================================
+    # Attention mechanism parameters
+    # ============================================================================
     patchtst_group.add_argument(
         "--key_padding_mask",
         type=str,
@@ -792,25 +827,36 @@ def _add_patchtst_args(parser):
     )
     patchtst_group.add_argument(
         "--res_attention",
-        type=bool,
-        default=True,
+        type=int,
+        default=1,
+        choices=[0, 1],
         metavar="BOOL",
-        help="use residual attention",
+        help="use residual attention (1=True, 0=False)",
     )
+
+    # ============================================================================
+    # Normalization and architecture parameters
+    # ============================================================================
     patchtst_group.add_argument(
         "--pre_norm",
-        type=bool,
-        default=False,
+        type=int,
+        default=0,
+        choices=[0, 1],
         metavar="BOOL",
-        help="pre-normalization",
+        help="pre-normalization (1=True, 0=False)",
     )
     patchtst_group.add_argument(
         "--store_attn",
-        type=bool,
-        default=False,
+        type=int,
+        default=0,
+        choices=[0, 1],
         metavar="BOOL",
-        help="store attention weights",
+        help="store attention weights (1=True, 0=False)",
     )
+
+    # ============================================================================
+    # Positional encoding parameters
+    # ============================================================================
     patchtst_group.add_argument(
         "--pe",
         type=str,
@@ -821,17 +867,21 @@ def _add_patchtst_args(parser):
     )
     patchtst_group.add_argument(
         "--learn_pe",
-        type=bool,
-        default=True,
-        metavar="BOOL",
-        help="learn positional encoding",
+        action="store_true",
+        default=False,
+        help="learn positional encoding (1=True, 0=False)",
     )
+
+    # ============================================================================
+    # Head parameters
+    # ============================================================================
     patchtst_group.add_argument(
         "--pretrain_head",
-        type=bool,
-        default=False,
+        type=int,
+        default=0,
+        choices=[0, 1],
         metavar="BOOL",
-        help="use pretrained head",
+        help="use pretrained head (1=True, 0=False)",
     )
     patchtst_group.add_argument(
         "--head_type",
@@ -841,12 +891,17 @@ def _add_patchtst_args(parser):
         metavar="TYPE",
         help="head type",
     )
+
+    # ============================================================================
+    # Miscellaneous
+    # ============================================================================
     patchtst_group.add_argument(
         "--verbose",
-        type=bool,
-        default=False,
+        type=int,
+        default=0,
+        choices=[0, 1],
         metavar="BOOL",
-        help="verbose output",
+        help="verbose output (1=True, 0=False)",
     )
 
     return parser

@@ -1,38 +1,39 @@
 import sys
 from pathlib import Path
-import time
-
-from matplotlib.pyplot import plot
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+
 # TODO: change paths here, don't need all of em
+
 sys.path.append(str(SCRIPT_DIR.parents[1]))
 sys.path.append(str(SCRIPT_DIR.parents[2]))
 sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "pyhessian"))
 sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "loss_landscape"))
 
-from src.models.time_series.samformer import SAMFormer
 
-from src.engines.samformer_engine import SAMFormer_Engine
-from src.utils.args import get_samformer_config
+from src.models.time_series.patchtst import PatchTST
+from src.engines.patchtst_engine import PatchTST_Engine
+from src.utils.args import get_patchtst_config
 from src.utils.dataloader import (
     SamformerDataloader,
 )
 from src.utils.logging import get_logger
+
+# TODO: write this in a separate class
 from src.utils.samformer_utils.sam import SAM
 
 from src.utils.reproducibility import set_seed
 from src.utils.experiment_utils import run_experiments_on_dataloader_list
 from src.utils.model_utils import load_optimizer
 
-# from src.utils.functions import (
-#     compute_top_eigenvalue_and_eigenvector,
-#     compute_dominant_hessian_directions,
-#     save_eigenvectors_to_hdf5,
-# )
-
 import torch
 
+torch.set_num_threads(3)
+from lib.utils.pyhessian.density_plot import get_esd_plot
+from lib.optimizers.gsam.gsam.gsam import GSAM
+from lib.optimizers.gsam.gsam.scheduler import LinearScheduler
+
+import argparse
 
 torch.set_num_threads(3)
 from lib.utils.pyhessian.density_plot import get_esd_plot
@@ -40,12 +41,49 @@ from lib.optimizers.gsam.gsam.gsam import GSAM
 from lib.optimizers.gsam.gsam.scheduler import LinearScheduler
 
 
+# args from orig patchtst repo
+# python -u run_longExp.py --random_seed 2021 --is_training 1 --root_path ./dataset/ --data_path ETTh1.csv --model_id 336_96 --model PatchTST --data ETTh1 --features M --seq_len 336 --pred_len 96 --enc_in
+#  7 --e_layers 3 --n_heads 4 --d_model 16 --d_ff 128 --dropout 0.3 --fc_dropout 0.3 --head_dropout 0 --patch_len 16 --stride 8 --des Exp --train_epochs 100 --itr 1 --batch_size 128 --learning_rate 0.0001
+# Args in experiment:
+# Namespace(random_seed=2021, is_training=1, model_id='336_96', model='PatchTST', data='ETTh1', root_path='./dataset/', data_path='ETTh1.csv', features='M', target='OT', freq='h', checkpoints='./checkpoints/', seq_len=336, label_len=48, pred_len=96, fc_dro
+# pout=0.3, head_dropout=0.0, patch_len=16, stride=8, padding_patch='end', revin=1, affine=0, subtract_last=0, decomposition=0, kernel_size=25, individual=0, embed_type=0, enc_in=7, dec_in=7, c_out=7, d_model=16, n_heads=4, e_layers=3, d_layers=1, d_ff=128
+# , moving_avg=25, factor=1, distil=True, dropout=0.3, embed='timeF', activation='gelu', output_attention=False, do_predict=False, num_workers=10, itr=1, train_epochs=100, batch_size=128, patience=100, learning_rate=0.0001, des='Exp', loss='mse', lradj='ty
+# pe3', pct_start=0.3, use_amp=False, use_gpu=True, gpu=0, use_multi_gpu=False, devices='0,1,2,3', test_flop=False)
+# Use GPU: cuda:0
+
+
+class PatchTSTConfig:
+    """Configuration class to mimic the args structure expected by PatchTST"""
+
+    def __init__(self, args):
+        # Map args to the expected PatchTST configuration
+        self.enc_in = args.enc_in
+        self.seq_len = args.seq_len
+        self.pred_len = args.horizon
+        self.e_layers = args.e_layers
+        self.n_heads = args.n_heads
+        self.d_model = args.d_model
+        self.d_ff = args.d_ff
+        self.dropout = args.dropout
+        self.fc_dropout = args.fc_dropout
+        self.head_dropout = args.head_dropout
+        self.individual = args.individual
+        self.patch_len = args.patch_len
+        self.stride = args.stride
+        self.padding_patch = args.padding_patch
+        self.revin = args.use_revin
+        self.affine = args.revin_affine
+        self.subtract_last = args.revin_subtract_last
+        self.decomposition = args.decomposition
+        self.kernel_size = args.kernel_size
+
+
 def get_config():
-    parser = get_samformer_config()
+    parser = get_patchtst_config()
     args = parser.parse_args()
     args._parser = parser
 
-    args.model_name = "samformer"
+    args.model_name = "patchtst"
 
     base_dir = SCRIPT_DIR.parents[3] / "results"
 
@@ -84,10 +122,10 @@ def main():
 
     set_seed(args.seed)
 
-    # TODO: add this as parameter
+    dataset_name = args.dataset
     time_increment = 1
-    # TODO: add this as parameter
     sequential_comparison = False
+
     dataloader_instance = SamformerDataloader(
         dataset=args.dataset,
         seq_len=args.seq_len,
@@ -100,28 +138,37 @@ def main():
         sequential_comparison=sequential_comparison,
     )
 
-    # TODO:add as parameter
-    args.plot_attention = True
-    # TODO: add this as parameter
     dataloader = dataloader_instance.get_dataloader()
-    model = SAMFormer(
-        num_channels=dataloader["train_loader"].dataset[0][0].shape[0],
-        seq_len=args.seq_len,
-        hid_dim=args.hid_dim,
-        horizon=args.horizon,
-        revin=args.use_revin,
-        plot_attention=args.plot_attention,
+
+    # Create PatchTST configuration
+    patchtst_config = PatchTSTConfig(args)
+
+    model = PatchTST(
+        patchtst_config,
+        max_seq_len=args.seq_len,
+        d_k=args.d_k,
+        d_v=args.d_v,
+        norm=args.norm,
+        attn_dropout=args.attn_dropout,
+        act=args.activation,
+        key_padding_mask=args.key_padding_mask,
+        padding_var=args.padding_var,
+        attn_mask=args.attn_mask,
+        res_attention=args.res_attention,
+        pre_norm=args.pre_norm,
+        store_attn=args.store_attn,
+        pe=args.pe,
+        learn_pe=args.learn_pe,
+        pretrain_head=args.pretrain_head,
+        head_type=args.head_type,
+        verbose=args.verbose,
     )
 
     optimizer = load_optimizer(model, args, logger)
     model.print_model_summary(args, logger)
-    # TODO: add option to choose lr_scheduler
-    # also lr_scheduler=None option
-    # put that in a function
-    from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts
 
+    # Setup learning rate scheduler and SAM if needed
     lr_scheduler = None
-
     if args.sam:
         base_optimizer_class = getattr(torch.optim, args.optimizer)
         # base_optimizer = base_optimizer_class(
@@ -174,19 +221,21 @@ def main():
             adaptive=args.gsam_adaptive,
         )
 
-    # TODO: add this as a parameter
     loss_fn = torch.nn.MSELoss()
+
     scaler = dataloader_instance.get_scaler()
-    # TODO: add this as a parameter
+
+    from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
+
     lr_scheduler = CosineAnnealingWarmRestarts(
         optimizer=optimizer,
-        T_0=5,  # Restart every 5 epochs
-        T_mult=1,  # Keep the same cycle length
-        eta_min=1e-6,  # Minimum learning rate
+        T_0=5,
+        T_mult=1,
+        eta_min=1e-6,
         last_epoch=-1,
     )
 
-    engine = SAMFormer_Engine(
+    engine = PatchTST_Engine(
         device=args.device,
         model=model,
         dataloader=dataloader,
@@ -203,11 +252,8 @@ def main():
         log_dir=log_dir,
         logger=logger,
         seed=args.seed,
-        # num_channels=dataloader["train_loader"].dataset[0][0].shape[0],
-        # pred_len=args.horizon,
-        # use_revin=args.use_revin,
-        plot_attention=args.plot_attention,
-        metrics=["mse", "mape", "rmse"],  # Track these metrics
+        # metrics=["mse", "mape", "rmse"],  # Track these metrics
+        metrics=["mse"],  # Track these metrics
     )
 
     if args.mode == "train":
@@ -217,41 +263,35 @@ def main():
         result = engine.evaluate(args.mode)
         print(f"Result: {result}")
 
-    # TODO: clean up
-    top_eigenvalue, top_eigenvector = compute_top_eigenvalue_and_eigenvector(
-        model, loss_fn, dataloader["train_loader"]
-    )
-    print(f"Max Eigenvalue: {top_eigenvalue}")
-
-    from lib.utils.pyhessian.pyhessian import hessian
-
-    hessian_comp = hessian(
-        model, loss_fn, dataloader=dataloader["train_loader"], cuda=args.device
-    )
-    density_eigen, density_weight = hessian_comp.density()
-
-    # print('\n***Top Eigenvalues: ', top_eigenvalues)
-    # print('\n***Trace: ', np.mean(trace))
-
-    get_esd_plot(density_eigen, density_weight)
-    # TODO: check how many eigenvalues are negative, i.e. negative curvature
-    # -> not converged to perfect local minimum that satisfies 1st and 2nd
-    # optimality conditions
-
-    if args.hessian_directions:
-        max_ev, max_evec, min_ev, min_evec = compute_dominant_hessian_directions(
-            model,
-            loss_fn,
-            dataloader["train_loader"],
-            tol=1e-4,  # Pass train_loader
+    # Hessian analysis (optional)
+    if hasattr(args, "hessian_analysis") and args.hessian_analysis:
+        top_eigenvalue, top_eigenvector = compute_top_eigenvalue_and_eigenvector(
+            model, loss_fn, dataloader["train_loader"]
         )
-        save_eigenvectors_to_hdf5(
-            args=args,
-            net=model,
-            max_evec=max_evec,
-            min_evec=min_evec,
-            output_dir=log_dir + "hessian_directions",
+        print(f"Max Eigenvalue: {top_eigenvalue}")
+
+        from lib.utils.pyhessian.pyhessian import hessian
+
+        hessian_comp = hessian(
+            model, loss_fn, dataloader=dataloader["train_loader"], cuda=args.device
         )
+        density_eigen, density_weight = hessian_comp.density()
+        get_esd_plot(density_eigen, density_weight)
+
+        if args.hessian_directions:
+            max_ev, max_evec, min_ev, min_evec = compute_dominant_hessian_directions(
+                model,
+                loss_fn,
+                dataloader["train_loader"],
+                tol=1e-4,
+            )
+            save_eigenvectors_to_hdf5(
+                args=args,
+                net=model,
+                max_evec=max_evec,
+                min_evec=min_evec,
+                output_dir=log_dir / "hessian_directions",
+            )
 
 
 if __name__ == "__main__":

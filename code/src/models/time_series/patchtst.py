@@ -56,8 +56,6 @@ class PatchTST(BaseModel):
     ):
         # Initialize BaseModel with parameters from configs
         super(PatchTST, self).__init__(
-            input_dim=configs.enc_in,
-            output_dim=configs.enc_in,  # Typically same as input for time series
             seq_len=configs.seq_len,
             horizon=configs.pred_len,
         )

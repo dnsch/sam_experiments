@@ -2,7 +2,9 @@ from matplotlib.pyplot import plot
 from torch import nn
 
 from src.utils.samformer_utils.attention import scaled_dot_product_attention
-from src.utils.samformer_utils.revin import RevIN
+
+# from src.utils.samformer_utils.revin import RevIN
+from src.utils.revin import RevIN
 
 from src.base.model import BaseModel
 
@@ -14,14 +16,15 @@ class SAMFormer(BaseModel):
         seq_len=512,
         hid_dim=16,
         horizon=720,
-        use_revin=True,
+        revin=True,
+        revin_affine=False,
         plot_attention=False,
         **args,
     ):
         super(SAMFormer, self).__init__(horizon=horizon, **args)
+        # Network architecture:
         # I think there was a bug in the original implementation,
         # see: https://github.com/romilbert/samformer/issues/20
-        self.revin = RevIN(num_features=num_channels)
         self.compute_keys = nn.Linear(seq_len, hid_dim)
         self.compute_queries = nn.Linear(seq_len, hid_dim)
         self.compute_values = nn.Linear(seq_len, hid_dim)
@@ -30,7 +33,8 @@ class SAMFormer(BaseModel):
 
         # Initialize weights to match SAMFormer init
         self._init_weights()
-        self.use_revin = use_revin
+        self.revin = revin
+        self.RevIN = RevIN(num_features=num_channels, affine=revin_affine)
         self.plot_attention = plot_attention
         self.attention_pattern = None
 
@@ -52,8 +56,8 @@ class SAMFormer(BaseModel):
     def forward(self, x, flatten_output=True):
         # RevIN Normalization
 
-        if self.use_revin:
-            x_norm = self.revin(x.transpose(1, 2), mode="norm").transpose(
+        if self.revin:
+            x_norm = self.RevIN(x.transpose(1, 2), mode="norm").transpose(
                 1, 2
             )  # (n, D, L)
         else:
@@ -81,8 +85,8 @@ class SAMFormer(BaseModel):
         # Linear Forecasting
         out = self.linear_forecaster(out)  # (n, D, H)
         # RevIN Denormalization
-        if self.use_revin:
-            out = self.revin(out.transpose(1, 2), mode="denorm").transpose(
+        if self.revin:
+            out = self.RevIN(out.transpose(1, 2), mode="denorm").transpose(
                 1, 2
             )  # (n, D, H)
         if flatten_output:
