@@ -11,7 +11,9 @@ sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "pyhessian"))
 sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "loss_landscape"))
 
 
-from src.models.time_series.patchtst import PatchTST
+# from src.models.time_series.patchtst import PatchTST
+
+from src.models.time_series.patchtst.PatchTST_test import PatchTST
 from src.engines.patchtst_engine import PatchTST_Engine
 from src.utils.args import get_patchtst_config
 from src.utils.dataloader import (
@@ -42,40 +44,18 @@ from lib.optimizers.gsam.gsam.scheduler import LinearScheduler
 
 
 # args from orig patchtst repo
-# python -u run_longExp.py --random_seed 2021 --is_training 1 --root_path ./dataset/ --data_path ETTh1.csv --model_id 336_96 --model PatchTST --data ETTh1 --features M --seq_len 336 --pred_len 96 --enc_in
-#  7 --e_layers 3 --n_heads 4 --d_model 16 --d_ff 128 --dropout 0.3 --fc_dropout 0.3 --head_dropout 0 --patch_len 16 --stride 8 --des Exp --train_epochs 100 --itr 1 --batch_size 128 --learning_rate 0.0001
+#
+#
+# python -u run_longExp.py --random_seed 2021 --is_training 1 --root_path ./dataset/ --data_path ETTh1.csv --model_id 336_96 --model PatchTST --data ETTh1 --features M --seq_len 336 --pred_len 96 --enc_in 7 --e_layers 3 --n_heads 4 --d_model 16 --d_ff 128 --dropout 0.3 --fc_dropout 0.3 --head_dropout 0 --patch_len 16 --stride 8 --des Exp --train_epochs 100 --itr 1 --batch_size 128 --learning_rate 0.0001
 # Args in experiment:
 # Namespace(random_seed=2021, is_training=1, model_id='336_96', model='PatchTST', data='ETTh1', root_path='./dataset/', data_path='ETTh1.csv', features='M', target='OT', freq='h', checkpoints='./checkpoints/', seq_len=336, label_len=48, pred_len=96, fc_dro
 # pout=0.3, head_dropout=0.0, patch_len=16, stride=8, padding_patch='end', revin=1, affine=0, subtract_last=0, decomposition=0, kernel_size=25, individual=0, embed_type=0, enc_in=7, dec_in=7, c_out=7, d_model=16, n_heads=4, e_layers=3, d_layers=1, d_ff=128
 # , moving_avg=25, factor=1, distil=True, dropout=0.3, embed='timeF', activation='gelu', output_attention=False, do_predict=False, num_workers=10, itr=1, train_epochs=100, batch_size=128, patience=100, learning_rate=0.0001, des='Exp', loss='mse', lradj='ty
 # pe3', pct_start=0.3, use_amp=False, use_gpu=True, gpu=0, use_multi_gpu=False, devices='0,1,2,3', test_flop=False)
 # Use GPU: cuda:0
-
-
-class PatchTSTConfig:
-    """Configuration class to mimic the args structure expected by PatchTST"""
-
-    def __init__(self, args):
-        # Map args to the expected PatchTST configuration
-        self.enc_in = args.enc_in
-        self.seq_len = args.seq_len
-        self.pred_len = args.horizon
-        self.e_layers = args.e_layers
-        self.n_heads = args.n_heads
-        self.d_model = args.d_model
-        self.d_ff = args.d_ff
-        self.dropout = args.dropout
-        self.fc_dropout = args.fc_dropout
-        self.head_dropout = args.head_dropout
-        self.individual = args.individual
-        self.patch_len = args.patch_len
-        self.stride = args.stride
-        self.padding_patch = args.padding_patch
-        self.revin = args.use_revin
-        self.affine = args.revin_affine
-        self.subtract_last = args.revin_subtract_last
-        self.decomposition = args.decomposition
-        self.kernel_size = args.kernel_size
+#
+# best:
+# python code/experiments/deep_learning/patchtst/standard_training.py --dataset ETTh1 --seed 2021 --device cuda:0 --lrate 1e-4 --patience 5 --max_epoch 300 --rho 0.4 --batch_size 128 --seq_len 512 --horizon 96 --n_layers 3 --n_heads 4 --d_model 16 --d_ff 128 --dropout 0.3 --fc_dropout 0.3 --head_dropout 0 --patch_len 16 --stride 8 --use_revin --revin_affine
 
 
 def get_config():
@@ -87,11 +67,14 @@ def get_config():
 
     base_dir = SCRIPT_DIR.parents[3] / "results"
 
+    # TODO: change this. Maybe put all possible model results into a dir called
+    # "patchtst", then add subdirs for sam, gsam etc.
+
     # Logger
     if args.sam:
         log_dir = "{}/{}/{}/seq_len_{}_pred_len_{}_bs_{}_rho_{}/".format(
             base_dir,
-            args.model_name,
+            args.model_name + "SAM",
             args.dataset,
             args.seq_len,
             args.horizon,
@@ -101,7 +84,7 @@ def get_config():
     else:
         log_dir = "{}/{}/{}/seq_len_{}_pred_len_{}_bs_{}/".format(
             base_dir,
-            "simple_transformer",
+            args.model_name,
             args.dataset,
             args.seq_len,
             args.horizon,
@@ -140,11 +123,32 @@ def main():
 
     dataloader = dataloader_instance.get_dataloader()
 
-    # Create PatchTST configuration
-    patchtst_config = PatchTSTConfig(args)
-
     model = PatchTST(
-        patchtst_config,
+        # Core architecture parameters
+        enc_in=args.enc_in,
+        seq_len=args.seq_len,
+        pred_len=args.horizon,
+        n_layers=args.n_layers,
+        n_heads=args.n_heads,
+        d_model=args.d_model,
+        d_ff=args.d_ff,
+        dropout=args.dropout,
+        fc_dropout=args.fc_dropout,
+        head_dropout=args.head_dropout,
+        # Patch parameters
+        patch_len=args.patch_len,
+        stride=args.stride,
+        padding_patch=args.padding_patch,
+        # RevIN parameters
+        revin=args.use_revin,
+        affine=args.revin_affine,
+        subtract_last=args.revin_subtract_last,
+        # Decomposition parameters
+        decomposition=args.decomposition,
+        kernel_size=args.kernel_size,
+        # Individual parameter
+        individual=args.individual,
+        # Additional parameters
         max_seq_len=args.seq_len,
         d_k=args.d_k,
         d_v=args.d_v,

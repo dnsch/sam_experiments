@@ -17,6 +17,24 @@ from src.utils.metrics import (
     get_metric_name_from_object,
 )
 
+# TODO: change labels and preds to true and pred everywhere for consistency
+# e.g. y_true, y_pred etc.
+#
+# Training set
+#
+# X_train, y_train = ...
+# y_train_pred = model.predict(X_train)
+#
+# Validation set
+#
+# X_val, y_val = ...
+# y_val_pred = model.predict(X_val)
+#
+# # Test set
+#
+# X_test, y_test = ...
+# y_test_pred = model.predict(X_test)
+
 
 class TorchEngine(ABC):
     def __init__(
@@ -145,16 +163,18 @@ class TorchEngine(ABC):
         return x_batch, y_batch
 
     # TODO: finish this
-    def _prepare_test_batch(self, batch) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _prepare_test_data(self, preds, labels) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Prepare batch data for the model
-        Default dataloader returns batches as batchsize x channels x seq_len
-        If model expects different input, override this function with necessary
-        permutations
-        Returns: (input_tensor, target_tensor)
+        Prepare test data for evaluation
+        Default functionality assumes data to be structured as batch x channels
+        x timesteps.
+        If predictions and labels were prepared differently,
+        override this function with necessary permutations, such that the data
+        is reshaped as BxCxT (batch x channels x timesteps)
+        Returns: (preds, labels)
         """
-        x_batch, y_batch = batch
-        return x_batch, y_batch
+        preds, labels = preds, labels
+        return preds, labels
 
     # ==========================================================================
     # Metrics
@@ -283,6 +303,7 @@ class TorchEngine(ABC):
         Compute test metrics and log detailed results.
         Override for custom test evaluation.
         """
+        preds, labels = self._prepare_test_data(preds, labels)
         metrics = self._compute_metrics(preds, labels)
 
         # Log all metrics
@@ -293,12 +314,11 @@ class TorchEngine(ABC):
         horizon_metrics = {metric: [] for metric in self._metrics}
 
         for i in range(self.model.horizon):
-            horizon_preds, horizon_labels = _prepare_test_batch
-            horizon_preds = preds[:, :, i].contiguous()
-            horizon_labels = labels[:, :, i].contiguous()
+            horizon_pred = preds[:, :, i].contiguous()
+            horizon_true = labels[:, :, i].contiguous()
 
             # Compute metrics for this horizon
-            horizon_result = self._compute_metrics(horizon_preds, horizon_labels)
+            horizon_result = self._compute_metrics(horizon_pred, horizon_true)
 
             # Log horizon metrics
             metric_str = ", ".join(

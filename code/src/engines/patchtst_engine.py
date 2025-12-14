@@ -23,6 +23,11 @@ class PatchTST_Engine(TorchEngine):
         # y_batch = y_batch.permute(0, 2, 1)
         return x_batch, y_batch
 
+    def _prepare_test_data(self, preds, labels) -> Tuple[torch.Tensor, torch.Tensor]:
+        preds = preds.permute(0, 2, 1).contiguous()
+        labels = labels.permute(0, 2, 1).contiguous()
+        return preds, labels
+
     # def train_batch(self):
     #     self.model.train()
     #     train_loss = []

@@ -645,8 +645,7 @@ def _add_patchtst_args(parser):
 
     # PatchTST specific arguments
     patchtst_group = parser.add_argument_group(
-        "PatchTST Model",
-        "PatchTST-specific model architecture hyperparameters. Help descriptions taken from patchtst_finetune.py if they existed there.",
+        "PatchTST Model", "PatchTST-specific model architecture hyperparameters"
     )
 
     # architecture
@@ -658,32 +657,32 @@ def _add_patchtst_args(parser):
         help="number of input channels (encoder input size)",
     )
     patchtst_group.add_argument(
-        "--n_layers",
+        "--e_layers",
         type=int,
         default=2,
         metavar="N",
-        help="number of Transformer layers",
+        help="number of encoder layers",
     )
     patchtst_group.add_argument(
         "--n_heads",
         type=int,
         default=8,
         metavar="N",
-        help="number of Transformer heads",
+        help="number of attention heads",
     )
     patchtst_group.add_argument(
         "--d_model",
         type=int,
         default=512,
         metavar="N",
-        help="Transformer d_model",
+        help="dimension of model",
     )
     patchtst_group.add_argument(
         "--d_ff",
         type=int,
         default=2048,
         metavar="N",
-        help="Transformer MLP dimension",
+        help="dimension of feedforward network",
     )
     patchtst_group.add_argument(
         "--d_k",
@@ -706,7 +705,7 @@ def _add_patchtst_args(parser):
         type=float,
         default=0.05,
         metavar="RATE",
-        help="dropout",
+        help="dropout rate",
     )
     patchtst_group.add_argument(
         "--fc_dropout",
@@ -718,9 +717,9 @@ def _add_patchtst_args(parser):
     patchtst_group.add_argument(
         "--head_dropout",
         type=float,
-        default=0,
+        default=0.0,
         metavar="RATE",
-        help="head dropout",
+        help="head dropout rate",
     )
     patchtst_group.add_argument(
         "--attn_dropout",

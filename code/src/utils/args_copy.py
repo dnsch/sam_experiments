@@ -4,26 +4,11 @@ import argparse
 File to build model and configuration specific arguments
 """
 
-# TODO: check if we can change those BOOL types, see
-# https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse
-
-# TODO: add vgg arg group
-# then add this to the _add_vgg_args
-#
-#
-# Override after all groups are added
-# model_group = _get_argument_group(parser, "Model")
-# if model_group:
-#     # Find and modify the existing argument
-#     for action in model_group._group_actions:
-#         if action.dest == "loss_name":
-#             action.default = "cross-entropy"
-#             action.help = "loss functions: cross-entropy"
-#             break
-
-
 # Helper functions
+
 # Add argument to an existing group helper
+
+
 def _get_argument_group(parser, title):
     """Retrieve an existing argument group by title."""
     for group in parser._action_groups:
@@ -32,11 +17,6 @@ def _get_argument_group(parser, title):
     return None
 
 
-# taken from Maxim's answer on
-# https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse
-
-
-# TODO: change all bool (store_true etc.) to this
 def str2bool(v):
     if isinstance(v, bool):
         return v
@@ -49,6 +29,8 @@ def str2bool(v):
 
 
 # Base configuration (used in all experiments)
+
+
 def get_base_config():
     """Base configuration parser with core training arguments."""
     parser = argparse.ArgumentParser(
@@ -73,7 +55,6 @@ def get_base_config():
         metavar="N",
         help="random seed for reproducibility",
     )
-    # TODO: add additional loss functions
     model_group.add_argument(
         "--loss_name",
         "-l",
@@ -86,7 +67,6 @@ def get_base_config():
         "--metrics",
         type=str,
         default="smape",
-        # choices=["smape", "mase", "rmse", "mae", "mape"],
         choices=["mse", "rmse", "mae", "mape"],
         metavar="METRICS",
         help="Additional metrics to compute: mse | mae | rmse | mape",
@@ -125,11 +105,6 @@ def get_base_config():
         help="do not normalize data",
     )
 
-    # dataset_group.add_argument(
-    #     "--noaug", default=False, action="store_true", help="no data augmentation"
-    # )
-
-    # TODO: change this to aug
     dataset_group.add_argument(
         "--noaug",
         type=str2bool,
@@ -138,8 +113,6 @@ def get_base_config():
         default=False,
         help="no data augmentation",
     )
-
-    # TODO: what exactly is this doing again?
     dataset_group.add_argument(
         "--label_corrupt_prob",
         type=float,
@@ -147,13 +120,6 @@ def get_base_config():
         metavar="PROB",
         help="probability of corrupting labels for robustness testing (0.0-1.0)",
     )
-
-    # parser.add_argument(
-    #     "--trainloader", default="", help="path to the dataloader with random labels"
-    # )
-    # parser.add_argument(
-    #     "--testloader", default="", help="path to the testloader with random labels"
-    # )
 
     # Experiment
     exp_group = parser.add_argument_group("Experiment", "Experiment settings")
@@ -229,7 +195,6 @@ def _add_deep_learning_args(parser):
         metavar="LR",
         help="learning rate",
     )
-    # TODO: check help here again
     deep_learning_group.add_argument(
         "--wdecay",
         type=float,
@@ -261,6 +226,14 @@ def _add_deep_learning_args(parser):
         const=True,
         default=False,
         help="use affine transformation in RevIN",
+    )
+    deep_learning_group.add_argument(
+        "--revin_subtract_last",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help="subtract last value in RevIN (default: subtract mean)",
     )
 
     # Add to existing Experiment group
@@ -295,13 +268,19 @@ def _add_loss_landscape_args(parser):
     ll_group.add_argument(
         "--plot_surface_mpi",
         "-m",
-        action="store_true",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=False,
         help="use mpi for loss landscape computation",
     )
     ll_group.add_argument(
         "--plot_surface_cuda",
         "-c",
-        action="store_true",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=False,
         help="use cuda for loss landscape computation",
     )
     ll_group.add_argument(
@@ -403,7 +382,9 @@ def _add_loss_landscape_args(parser):
     )
     dir_group.add_argument(
         "--same_dir",
-        action="store_true",
+        type=str2bool,
+        nargs="?",
+        const=True,
         default=False,
         help="use the same random direction for both x-axis and y-axis",
     )
@@ -422,7 +403,9 @@ def _add_loss_landscape_args(parser):
     )
     dir_group.add_argument(
         "--hessian_directions",
-        action="store_true",
+        type=str2bool,
+        nargs="?",
+        const=True,
         default=False,
         help="create hessian eigenvectors directions h5 file",
     )
@@ -466,17 +449,26 @@ def _add_loss_landscape_args(parser):
         help="plot contours every vlevel",
     )
     plot_group.add_argument(
-        "--show", action="store_true", default=False, help="show plotted figures"
+        "--show",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help="show plotted figures",
     )
     plot_group.add_argument(
         "--log",
-        action="store_true",
+        type=str2bool,
+        nargs="?",
+        const=True,
         default=False,
         help="use log scale for loss values",
     )
     plot_group.add_argument(
         "--plot",
-        action="store_true",
+        type=str2bool,
+        nargs="?",
+        const=True,
         default=False,
         help="plot figures after computation",
     )
@@ -556,6 +548,8 @@ def _add_gsam_args(parser):
 
 
 # Model specific arguments
+
+
 def _add_samformer_args(parser):
     """Add SAMFormer model architecture arguments."""
 
@@ -645,11 +639,10 @@ def _add_patchtst_args(parser):
 
     # PatchTST specific arguments
     patchtst_group = parser.add_argument_group(
-        "PatchTST Model",
-        "PatchTST-specific model architecture hyperparameters. Help descriptions taken from patchtst_finetune.py if they existed there.",
+        "PatchTST Model", "PatchTST-specific model architecture hyperparameters"
     )
 
-    # architecture
+    # Core sequence parameters
     patchtst_group.add_argument(
         "--enc_in",
         type=int,
@@ -657,33 +650,35 @@ def _add_patchtst_args(parser):
         metavar="N",
         help="number of input channels (encoder input size)",
     )
+
+    # Transformer architecture parameters
     patchtst_group.add_argument(
-        "--n_layers",
+        "--e_layers",
         type=int,
         default=2,
         metavar="N",
-        help="number of Transformer layers",
+        help="number of encoder layers",
     )
     patchtst_group.add_argument(
         "--n_heads",
         type=int,
         default=8,
         metavar="N",
-        help="number of Transformer heads",
+        help="number of attention heads",
     )
     patchtst_group.add_argument(
         "--d_model",
         type=int,
         default=512,
         metavar="N",
-        help="Transformer d_model",
+        help="dimension of model",
     )
     patchtst_group.add_argument(
         "--d_ff",
         type=int,
         default=2048,
         metavar="N",
-        help="Transformer MLP dimension",
+        help="dimension of feedforward network",
     )
     patchtst_group.add_argument(
         "--d_k",
@@ -700,13 +695,13 @@ def _add_patchtst_args(parser):
         help="dimension of values (default: d_model // n_heads)",
     )
 
-    # Dropout
+    # Dropout parameters
     patchtst_group.add_argument(
         "--dropout",
         type=float,
         default=0.05,
         metavar="RATE",
-        help="dropout",
+        help="dropout rate",
     )
     patchtst_group.add_argument(
         "--fc_dropout",
@@ -718,9 +713,9 @@ def _add_patchtst_args(parser):
     patchtst_group.add_argument(
         "--head_dropout",
         type=float,
-        default=0,
+        default=0.0,
         metavar="RATE",
-        help="head dropout",
+        help="head dropout rate",
     )
     patchtst_group.add_argument(
         "--attn_dropout",
@@ -730,7 +725,7 @@ def _add_patchtst_args(parser):
         help="attention dropout rate",
     )
 
-    # Patch
+    # Patch parameters
     patchtst_group.add_argument(
         "--patch_len",
         type=int,
@@ -754,43 +749,9 @@ def _add_patchtst_args(parser):
         help="padding type for patches",
     )
 
-    # Additional revin param (only for patchtst)
-    patchtst_group.add_argument(
-        "--revin_subtract_last",
-        type=str2bool,
-        nargs="?",
-        const=True,
-        default=False,
-        help="subtract last value in RevIN (default: subtract mean)",
-    )
-
-    # RevIN (Reversible Instance Normalization) parameters
-    # patchtst_group.add_argument(
-    #     "--revin",
-    #     type=int,
-    #     default=1,
-    #     choices=[0, 1],
-    #     metavar="BOOL",
-    #     help="use RevIN normalization (1=True, 0=False)",
-    # )
-    # patchtst_group.add_argument(
-    #     "--affine",
-    #     type=int,
-    #     default=0,
-    #     choices=[0, 1],
-    #     metavar="BOOL",
-    #     help="RevIN affine transformation (1=True, 0=False)",
-    # )
-    # patchtst_group.add_argument(
-    #     "--subtract_last",
-    #     type=int,
-    #     default=0,
-    #     choices=[0, 1],
-    #     metavar="BOOL",
-    #     help="subtract last value (1=True) or mean (0=False)",
-    # )
-
-    # Decomposition
+    # ============================================================================
+    # Decomposition parameters
+    # ============================================================================
     patchtst_group.add_argument(
         "--decomposition",
         type=str2bool,
@@ -807,7 +768,9 @@ def _add_patchtst_args(parser):
         help="kernel size for decomposition",
     )
 
-    # Additional model specific params
+    # ============================================================================
+    # Channel-specific parameters
+    # ============================================================================
     patchtst_group.add_argument(
         "--individual",
         type=str2bool,
@@ -817,8 +780,9 @@ def _add_patchtst_args(parser):
         help="individual head for each channel",
     )
 
-    # TODO: Might put these somewhere else
-    # #TODO: I think this one is also legacy
+    # ============================================================================
+    # Additional transformer parameters
+    # ============================================================================
     patchtst_group.add_argument(
         "--norm",
         type=str,
@@ -836,7 +800,30 @@ def _add_patchtst_args(parser):
         help="activation function",
     )
 
-    # Attention mechanism
+    # ============================================================================
+    # Attention mechanism parameters
+    # ============================================================================
+    patchtst_group.add_argument(
+        "--key_padding_mask",
+        type=str,
+        default="auto",
+        metavar="TYPE",
+        help="key padding mask type",
+    )
+    patchtst_group.add_argument(
+        "--padding_var",
+        type=int,
+        default=None,
+        metavar="N",
+        help="padding variable",
+    )
+    patchtst_group.add_argument(
+        "--attn_mask",
+        type=str,
+        default=None,
+        metavar="TYPE",
+        help="attention mask",
+    )
     patchtst_group.add_argument(
         "--res_attention",
         type=str2bool,
@@ -845,6 +832,10 @@ def _add_patchtst_args(parser):
         default=True,
         help="use residual attention",
     )
+
+    # ============================================================================
+    # Normalization and architecture parameters
+    # ============================================================================
     patchtst_group.add_argument(
         "--pre_norm",
         type=str2bool,
@@ -861,6 +852,10 @@ def _add_patchtst_args(parser):
         default=False,
         help="store attention weights",
     )
+
+    # ============================================================================
+    # Positional encoding parameters
+    # ============================================================================
     patchtst_group.add_argument(
         "--pe",
         type=str,
@@ -877,6 +872,10 @@ def _add_patchtst_args(parser):
         default=False,
         help="learn positional encoding",
     )
+
+    # ============================================================================
+    # Head parameters
+    # ============================================================================
     patchtst_group.add_argument(
         "--pretrain_head",
         type=str2bool,
@@ -894,43 +893,16 @@ def _add_patchtst_args(parser):
         help="head type",
     )
 
-    # Legacy parameters (No Effect)
-
-    patchtst_group.add_argument(
-        "--max_seq_len",
-        type=int,
-        default=1024,
-        metavar="N",
-        help="maximum sequence length (legacy parameter, currently unused but kept for compatibility with original PatchTST)",
-    )
-    patchtst_group.add_argument(
-        "--key_padding_mask",
-        type=str,
-        default="auto",
-        metavar="TYPE",
-        help="key padding mask type (legacy parameter, currently unused but kept for compatibility with original PatchTST)",
-    )
-    patchtst_group.add_argument(
-        "--padding_var",
-        type=int,
-        default=None,
-        metavar="N",
-        help="padding variable (legacy parameter, currently unused but kept for compatibility with original PatchTST)",
-    )
-    patchtst_group.add_argument(
-        "--attn_mask",
-        type=str,
-        default=None,
-        metavar="TYPE",
-        help="attention mask (legacy parameter, currently unused but kept for compatibility with original PatchTST)",
-    )
+    # ============================================================================
+    # Miscellaneous
+    # ============================================================================
     patchtst_group.add_argument(
         "--verbose",
         type=str2bool,
         nargs="?",
         const=True,
         default=False,
-        help="verbose output (legacy parameter, currently unused but kept for compatibility with original PatchTST)",
+        help="verbose output",
     )
 
     return parser
@@ -967,7 +939,6 @@ def _add_auto_arima_args(parser):
     )
 
     # StatsForecast specific parameters
-    # TODO: change this some auto value as in the code down below
     auto_arima_group.add_argument(
         "--n_cores",
         type=int,
@@ -1188,7 +1159,6 @@ def _add_auto_tbats_args(parser):
         metavar="BOUND",
         help="Upper bound for Box-Cox parameter",
     )
-    # TODO: default was None before, check if it works the new 'False' arg aswell
     auto_tbats_group.add_argument(
         "--use_trend",
         type=str2bool,
@@ -1309,6 +1279,8 @@ def _add_seasonal_exponential_smoothing_args(parser):
 
 
 # Model configurations
+
+
 def get_samformer_config():
     """
     Complete SAMFormer configuration parser.
