@@ -4,7 +4,7 @@ import time
 import torch
 import numpy as np
 from abc import ABC, abstractmethod
-from typing import Dict, List, Tuple, Optional, Any, Union
+from typing import Dict, List, Tuple, Optional, Any
 from collections import defaultdict
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -82,9 +82,6 @@ class TorchEngine(ABC):
         self._timeout_hours = timeout_hours
         self._enable_plotting = enable_plotting
 
-        # Storage for current batch data (accessible to subclasses)
-        self._current_batch = None
-
         # Init metrics
         # _metrics is a dict that maps metric names to the metric
         # objects
@@ -104,74 +101,21 @@ class TorchEngine(ABC):
     # ==========================================================================
 
     def _to_device(self, tensors):
-        """
-        Move tensors to device. Handles lists, tuples, dicts, and individual tensors.
-
-        Args:
-            tensors: Tensor(s) to move to device. Can be:
-                - Single tensor
-                - List of tensors
-                - Tuple of tensors
-                - Dict of tensors
-                - None
-
-        Returns:
-            Tensor(s) on the specified device, maintaining the same structure
-        """
         if isinstance(tensors, list):
             return [tensor.to(self._device) for tensor in tensors]
-        elif isinstance(tensors, tuple):
-            return tuple(
-                tensor.to(self._device) if tensor is not None else None
-                for tensor in tensors
-            )
-        elif isinstance(tensors, dict):
-            return {
-                k: v.to(self._device) if v is not None else None
-                for k, v in tensors.items()
-            }
-        elif tensors is None:
-            return None
         return tensors.to(self._device)
 
     def _to_numpy(self, tensors):
-        """
-        Convert tensor(s) to numpy array(s).
-
-        Args:
-            tensors: Tensor or list of tensors to convert
-
-        Returns:
-            Numpy array(s) corresponding to input tensor(s)
-        """
         if isinstance(tensors, list):
             return [tensor.detach().cpu().numpy() for tensor in tensors]
         return tensors.detach().cpu().numpy()
 
     def _to_tensor(self, nparray):
-        """
-        Convert numpy array(s) to tensor(s).
-
-        Args:
-            nparray: Numpy array or list of numpy arrays to convert
-
-        Returns:
-            Tensor(s) corresponding to input array(s)
-        """
         if isinstance(nparray, list):
             return [torch.tensor(array, dtype=torch.float32) for array in nparray]
         return torch.tensor(nparray, dtype=torch.float32)
 
     def _inverse_transform(self, tensors):
-        """
-        Apply inverse transformation using the scaler.
-
-        Args:
-            tensors: Tensor or list of tensors to inverse transform
-
-        Returns:
-            Inverse transformed tensor(s)
-        """
         inv = lambda tensor: self._scaler.inverse_transform(tensor)
         if isinstance(tensors, list):
             return [inv(tensor) for tensor in tensors]
@@ -182,35 +126,16 @@ class TorchEngine(ABC):
     # ==========================================================================
 
     def save_current_model(self, save_path, epoch):
-        """
-        Save model checkpoint for a specific epoch.
-
-        Args:
-            save_path: Path to save directory
-            epoch: Current epoch number
-        """
         save_path.mkdir(parents=True, exist_ok=True)
         filename = save_path / f"model_{epoch}.pt"
         torch.save(self.model.state_dict(), filename)
 
     def save_model(self, save_path):
-        """
-        Save final model.
-
-        Args:
-            save_path: Path to save directory
-        """
         save_path.mkdir(parents=True, exist_ok=True)
         filename = save_path / f"final_model_s{self._seed}.pt"
         torch.save(self.model.state_dict(), filename)
 
     def load_model(self, save_path):
-        """
-        Load saved model.
-
-        Args:
-            save_path: Path to save directory
-        """
         filename = save_path / f"final_model_s{self._seed}.pt"
         self.model.load_state_dict(torch.load(filename))
 
@@ -223,65 +148,19 @@ class TorchEngine(ABC):
         return self._dataloader["train_loader"]
 
     def _get_dataloader(self, key: str):
-        """
-        Get data loader by key.
-
-        Args:
-            key: Key for the dataloader (e.g., 'train_loader', 'val_loader', 'test_loader')
-
-        Returns:
-            Requested dataloader
-        """
+        """Get data loader by key."""
         return self._dataloader[key]
 
-    def _has_time_features(self, batch) -> bool:
+    def _prepare_batch(self, batch) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Check if batch contains time features.
-
-        Args:
-            batch: Raw batch from dataloader
-
-        Returns:
-            True if batch contains time features (length 4), False otherwise
-        """
-        return len(batch) == 4
-
-    def _prepare_batch(self, batch) -> Dict[str, torch.Tensor]:
-        """
-        Prepare batch data for the model.
+        Prepare batch data for the model
         Default dataloader returns batches as batchsize x channels x seq_len
         If model expects different input, override this function with necessary
         permutations
-
-        Args:
-            batch: Raw batch from dataloader. Can be:
-                - (x_batch, y_batch) without time features
-                - (x_batch, y_batch, x_mark, y_mark) with time features
-
-        Returns:
-            Dictionary with keys:
-                - 'x': input tensor
-                - 'y': target tensor
-                - 'x_mark': input time features (None if not available)
-                - 'y_mark': target time features (None if not available)
-
+        Returns: (input_tensor, target_tensor)
         """
-        if self._has_time_features(batch):
-            x_batch, y_batch, x_mark, y_mark = batch
-            return {
-                "x": x_batch,
-                "y": y_batch,
-                "x_mark": x_mark,
-                "y_mark": y_mark,
-            }
-        else:
-            x_batch, y_batch = batch
-            return {
-                "x": x_batch,
-                "y": y_batch,
-                "x_mark": None,
-                "y_mark": None,
-            }
+        x_batch, y_batch = batch
+        return x_batch, y_batch
 
     # TODO: finish this
     def _prepare_test_data(self, preds, labels) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -292,26 +171,10 @@ class TorchEngine(ABC):
         If predictions and labels were prepared differently,
         override this function with necessary permutations, such that the data
         is reshaped as BxCxT (batch x channels x timesteps)
-
-        Args:
-            preds: Model predictions
-            labels: Ground truth labels
-
-        Returns:
-            Tuple of (preds, labels) in the correct format for evaluation
+        Returns: (preds, labels)
         """
         preds, labels = preds, labels
         return preds, labels
-
-    def _get_batch_inputs(self) -> Dict[str, torch.Tensor]:
-        """
-        Get the prepared batch inputs.
-        Subclasses can call this in _forward_pass to access batch data.
-
-        Returns:
-            Dictionary with 'x', 'y', 'x_mark', 'y_mark' keys
-        """
-        return self._current_batch
 
     # ==========================================================================
     # Metrics
@@ -323,9 +186,6 @@ class TorchEngine(ABC):
         """
         Initialize metric calculators from metric name strings using the
         get_metric_objects function from utils/metrics.py.
-
-        Args:
-            metric_names: List of metric names to initialize (e.g., ['mse', 'mae', 'mape'])
 
         Returns:
             Dict[str, Any]: Dictionary mapping metric names to metric objects
@@ -376,9 +236,6 @@ class TorchEngine(ABC):
         """
         Return the name of the loss metric.
         Override if you want a different name than 'loss'.
-
-        Returns:
-            String name of the loss metric
         """
         # Try to infer from loss function class name
         loss_class_name = self._loss_fn.__class__.__name__.lower()
@@ -393,16 +250,7 @@ class TorchEngine(ABC):
         return "loss"  # Default fallback
 
     def _compute_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        """
-        Compute loss
-
-        Args:
-            pred: Model predictions
-            target: Ground truth targets
-
-        Returns:
-            Loss value as tensor
-        """
+        """Compute loss"""
         return self._loss_fn(pred, target)
 
     def _compute_metrics(
@@ -410,10 +258,6 @@ class TorchEngine(ABC):
     ) -> Dict[str, float]:
         """
         Compute all metrics: loss + additional metrics from the metrics list.
-
-        Args:
-            pred: Model predictions
-            target: Ground truth targets
 
         Returns:
             Dictionary with metric_name: value pairs
@@ -425,6 +269,9 @@ class TorchEngine(ABC):
         loss = self._compute_loss(pred, target)
         metrics[loss_name] = loss.item()
 
+        import pdb
+
+        # pdb.set_trace()
         # Compute additional metrics
         for metric_name, metric_object in self._metrics.items():
             try:
@@ -446,16 +293,7 @@ class TorchEngine(ABC):
     def _compute_validation_metrics(
         self, preds: torch.Tensor, labels: torch.Tensor
     ) -> Dict[str, float]:
-        """
-        Compute validation metrics.
-
-        Args:
-            preds: Model predictions
-            labels: Ground truth labels
-
-        Returns:
-            Dictionary of metric_name: value pairs
-        """
+        """Compute validation metrics."""
         return self._compute_metrics(preds, labels)
 
     def _compute_test_metrics(
@@ -464,13 +302,6 @@ class TorchEngine(ABC):
         """
         Compute test metrics and log detailed results.
         Override for custom test evaluation.
-
-        Args:
-            preds: Model predictions
-            labels: Ground truth labels
-
-        Returns:
-            Dictionary of metric_name: value pairs
         """
         preds, labels = self._prepare_test_data(preds, labels)
         metrics = self._compute_metrics(preds, labels)
@@ -521,17 +352,7 @@ class TorchEngine(ABC):
         val_time: float,
         lr: float,
     ):
-        """
-        Log metrics for an epoch in a generic way.
-
-        Args:
-            epoch: Current epoch number
-            train_metrics: Dictionary of training metrics
-            val_metrics: Dictionary of validation metrics
-            train_time: Training time in seconds
-            val_time: Validation time in seconds
-            lr: Current learning rate
-        """
+        """Log metrics for an epoch in a generic way."""
         # Build metric strings
         train_str = ", ".join(
             [f"Train {k.upper()}: {v:.4f}" for k, v in train_metrics.items()]
@@ -556,12 +377,7 @@ class TorchEngine(ABC):
     # ==========================================================================
 
     def _plot_training_curves(self, metrics: TrainingMetrics):
-        """
-        Plot training curves for all tracked metrics.
-
-        Args:
-            metrics: TrainingMetrics object containing all tracked metrics
-        """
+        """Plot training curves for all tracked metrics."""
         try:
             from src.utils.plotting import plot_stats
 
@@ -577,13 +393,7 @@ class TorchEngine(ABC):
             self._logger.warning(f"Plotting failed: {e}")
 
     def _plot_test_results(self, preds, labels):
-        """
-        Generate test result plots.
-
-        Args:
-            preds: Model predictions
-            labels: Ground truth labels
-        """
+        """Generate test result plots."""
         try:
             from src.utils.plotting import (
                 plot_mean_per_day,
@@ -634,16 +444,6 @@ class TorchEngine(ABC):
     ) -> torch.Tensor:
         """
         Execute forward pass through the model.
-
-        Default implementation: simple forward with input tensor.
-        Override this for models requiring additional inputs (like time features).
-        Subclasses can access full batch data via self._get_batch_inputs()
-
-        Args:
-            x_batch: Input batch tensor
-
-        Returns:
-            Model output tensor
         """
         out_batch = self.model(x_batch, False)
         return out_batch
@@ -654,11 +454,6 @@ class TorchEngine(ABC):
         """
         Execute optimizer step.
         Default: standard gradient descent.
-
-        Args:
-            loss: Computed loss tensor
-            x_batch: Input batch (used for SAM/GSAM)
-            y_batch: Target batch (used for SAM/GSAM)
         """
 
         if self._sam:
@@ -696,12 +491,7 @@ class TorchEngine(ABC):
 
     # TODO: test gsam
     def _get_current_lr(self) -> float:
-        """
-        Get current LR (handles GSAM special case).
-
-        Returns:
-            Current learning rate
-        """
+        """Get current LR (handles GSAM special case)."""
         if self._gsam:
             return self._lr_scheduler._last_lr[0]
         # No _lr_scheduler
@@ -720,15 +510,7 @@ class TorchEngine(ABC):
 
     # TODO: change name
     def _should_save_epoch_model(self, epoch: int) -> bool:
-        """
-        Determine if model should be saved this epoch.
-
-        Args:
-            epoch: Current epoch number
-
-        Returns:
-            True if model should be saved
-        """
+        """Determine if model should be saved this epoch."""
         return True
 
     def _check_early_stopping(
@@ -807,9 +589,6 @@ class TorchEngine(ABC):
         Hook called at the start of each epoch.
         If needed, put calls in here that should be executed at the start of each
         epoch
-
-        Args:
-            epoch: Current epoch number
         """
         pass
 
@@ -818,9 +597,6 @@ class TorchEngine(ABC):
         Hook called at the end of each epoch.
         If needed, put calls in here that should be executed at the end of each
         epoch
-
-        Args:
-            epoch: Current epoch number
         """
         pass
 
@@ -843,24 +619,16 @@ class TorchEngine(ABC):
     def train_batch(self) -> Dict[str, float]:
         """
         Train for one epoch.
-
-        Returns:
-            Dictionary of metric_name: mean_value pairs
+        Returns: Dictionary of metric_name: mean_value pairs
         """
         self.model.train()
         batch_metrics = defaultdict(list)
 
         for batch_idx, batch in enumerate(self._get_train_loader()):
             # Prepare data
-            batch_dict = self._prepare_batch(batch)
-            self._current_batch = batch_dict
-
-            # Move to device
-            batch_dict = self._to_device(batch_dict)
-            self._current_batch = batch_dict
-
-            x_batch = batch_dict["x"]
-            y_batch = batch_dict["y"]
+            x_batch, y_batch = self._prepare_batch(batch)
+            x_batch = self._to_device(x_batch)
+            y_batch = self._to_device(y_batch)
 
             # Forward pass
             pred = self._forward_pass(x_batch).contiguous()
@@ -889,9 +657,7 @@ class TorchEngine(ABC):
     def train(self) -> Optional[float]:
         """
         Main training loop.
-
-        Returns:
-            Loss value on test set
+        Returns: loss value on test set
         """
         self._logger.info("Start training!")
         self._logger.info(f"Tracking metrics: {self._get_metric_names()}")
@@ -964,12 +730,9 @@ class TorchEngine(ABC):
     def evaluate(self, mode: str) -> Dict[str, float]:
         """
         Evaluate the model.
-
         Args:
             mode: 'val' or 'test'
-
-        Returns:
-            Dictionary of metric_name: value pairs
+        Returns: Dictionary of metric_name: value pairs
         """
         if mode == "test":
             self.load_model(self._save_path)
@@ -981,15 +744,9 @@ class TorchEngine(ABC):
         loader_key = f"{mode}_loader"
         with torch.no_grad():
             for batch in self._get_dataloader(loader_key):
-                batch_dict = self._prepare_batch(batch)
-                self._current_batch = batch_dict
-
-                # Move to device
-                batch_dict = self._to_device(batch_dict)
-                self._current_batch = batch_dict
-
-                x_batch = batch_dict["x"]
-                y_batch = batch_dict["y"]
+                x_batch, y_batch = self._prepare_batch(batch)
+                x_batch = self._to_device(x_batch)
+                y_batch = self._to_device(y_batch)
 
                 pred = self._forward_pass(x_batch)
 

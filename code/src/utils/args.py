@@ -1809,6 +1809,46 @@ def get_formers_config():
     return parser
 
 
+# TODO: maybe just one get_config for all formers? If they all use the same args
+def get_autoformer_config():
+    """
+    Complete Autoformer configuration parser.
+
+    Includes:
+    - Base config (hardware, model, dataset, experiment)
+    - Time series forecast config (seq_len, horizon)
+    - Deep learning config (optimizer, hyperparameters)
+    - Common Transformer architecture (shared with other Formers)
+    - Formers-specific config (decoder, embeddings, etc.)
+    - SAM/GSAM optimization
+    - Loss landscape visualization
+
+    """
+    # Start with base config
+    parser = get_base_config()
+
+    # Add time series forecast config
+    parser = _add_time_series_forecast_args(parser)
+
+    # Add deep learning configuration
+    parser = _add_deep_learning_args(parser)
+
+    # Add common Transformer architecture arguments
+    parser = _add_formers_common_args(parser)
+
+    # Add Formers-specific arguments
+    parser = _add_formers_specific_args(parser)
+
+    # Add SAM/GSAM optimization
+    parser = _add_sam_args(parser)
+    parser = _add_gsam_args(parser)
+
+    # Add loss landscape configuration
+    parser = _add_loss_landscape_args(parser)
+
+    return parser
+
+
 def get_patchtst_config():
     """
     Complete PatchTST configuration parser.

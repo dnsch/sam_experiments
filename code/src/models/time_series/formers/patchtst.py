@@ -16,8 +16,8 @@ import pdb
 
 # pdb.set_trace()
 from src.base.model import BaseModel
-from patchtst.layers.PatchTST_backbone import PatchTST_backbone
-from patchtst.layers.PatchTST_layers import series_decomp
+from formers.layers.PatchTST_backbone import PatchTST_backbone
+from formers.layers.PatchTST_layers import series_decomp
 
 
 class PatchTST(BaseModel):
@@ -209,6 +209,7 @@ class PatchTST(BaseModel):
             x = x.permute(0, 2, 1)  # x: [Batch, Channel, Input length]
             x = self.model(x)
             x = x.permute(0, 2, 1)  # x: [Batch, Input length, Channel]
+        # TODO: maybe get rid of these in every model
         if flatten_output:
             # Flatten to [Batch, Output_length * Channel] for compatibility
             return x.reshape(x.shape[0], -1)

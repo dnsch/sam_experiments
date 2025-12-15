@@ -1,4 +1,3 @@
-import os
 import numpy as np
 import pandas as pd
 import torch
@@ -7,7 +6,6 @@ from sklearn.preprocessing import StandardScaler
 from torch.utils.data import Dataset
 
 # CIFAR10 datasets
-
 import torchvision
 import torchvision.transforms as transforms
 
@@ -15,44 +13,32 @@ from pathlib import Path
 import random
 
 
-from typing import Optional, Iterator, Tuple, Dict, List
+from typing import Optional, Iterator, Tuple, Dict
+import pdb
 
 # Statsforecast Dataloader
-
 from src.utils.model_utils import statsforecast_to_tensor
-
-# For pandas offset parsing (matching original Autoformer)
-
-from pandas.tseries import offsets
-from pandas.tseries.frequencies import to_offset
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
 # Taken from:
-
 # https://github.com/romilbert/samformer/blob/main/samformer_pytorch/run_demo.py
-
 # https://github.com/romilbert/samformer/blob/main/samformer_pytorch/samformer/utils/dataset.py
-
 # slightly modified
-
-
 class LabeledDataset(Dataset):
-    def __init__(self, x, y, x_mark=None, y_mark=None):
+    def __init__(self, x, y):
         """
         Converts numpy data to a torch dataset
         Args:
             x (np.array): data matrix
             y (np.array): class labels
-            x_mark (np.array, optional): time features for x
-            y_mark (np.array, optional): time features for y
         """
         self.x = torch.FloatTensor(x)
         self.y = torch.FloatTensor(y)
-        self.x_mark = torch.FloatTensor(x_mark) if x_mark is not None else None
-        self.y_mark = torch.FloatTensor(y_mark) if y_mark is not None else None
-        self.has_time_features = x_mark is not None
+
+    def transform(self, x):
+        return torch.FloatTensor(x)
 
     def __len__(self):
         return self.y.shape[0]
@@ -60,251 +46,21 @@ class LabeledDataset(Dataset):
     def __getitem__(self, idx):
         examples = self.x[idx]
         labels = self.y[idx]
-
-        if self.has_time_features:
-            x_time_features = self.x_mark[idx]
-            y_time_features = self.y_mark[idx]
-            return examples, labels, x_time_features, y_time_features
-        else:
-            return examples, labels
+        return examples, labels
 
 
-# Time Features
-
-# Based on: https://github.com/thuml/Autoformer/blob/main/utils/timefeatures.py
-
-# needed for autoformer
-
-
-class TimeFeature:
-    """Base class for time features."""
-
-    def __init__(self):
-        pass
-
-    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
-        pass
-
-    def __repr__(self):
-        return self.__class__.__name__ + "()"
-
-
-class SecondOfMinute(TimeFeature):
-    """Second of minute encoded as value between [-0.5, 0.5]"""
-
-    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
-        return index.second / 59.0 - 0.5
-
-
-class MinuteOfHour(TimeFeature):
-    """Minute of hour encoded as value between [-0.5, 0.5]"""
-
-    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
-        return index.minute / 59.0 - 0.5
-
-
-class HourOfDay(TimeFeature):
-    """Hour of day encoded as value between [-0.5, 0.5]"""
-
-    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
-        return index.hour / 23.0 - 0.5
-
-
-class DayOfWeek(TimeFeature):
-    """Day of week encoded as value between [-0.5, 0.5]"""
-
-    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
-        return index.dayofweek / 6.0 - 0.5
-
-
-class DayOfMonth(TimeFeature):
-    """Day of month encoded as value between [-0.5, 0.5]"""
-
-    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
-        return (index.day - 1) / 30.0 - 0.5
-
-
-class DayOfYear(TimeFeature):
-    """Day of year encoded as value between [-0.5, 0.5]"""
-
-    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
-        return (index.dayofyear - 1) / 365.0 - 0.5
-
-
-class MonthOfYear(TimeFeature):
-    """Month of year encoded as value between [-0.5, 0.5]"""
-
-    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
-        return (index.month - 1) / 11.0 - 0.5
-
-
-class WeekOfYear(TimeFeature):
-    """Week of year encoded as value between [-0.5, 0.5]"""
-
-    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
-        return (
-            index.isocalendar().week - 1
-        ) / 52.0 - 0.5  # Note: 52.0 to match original
-
-
-def time_features_from_frequency_str(freq_str: str) -> List[TimeFeature]:
-    """
-    Returns a list of time features that will be appropriate for the given frequency string.
-    Parameters
-    ----------
-    freq_str
-        Frequency string of the form [multiple][granularity] such as "12H", "5min", "1D" etc.
-    """
-
-    features_by_offsets = {
-        offsets.YearEnd: [],
-        offsets.QuarterEnd: [MonthOfYear],
-        offsets.MonthEnd: [MonthOfYear],
-        offsets.Week: [DayOfMonth, WeekOfYear],
-        offsets.Day: [DayOfWeek, DayOfMonth, DayOfYear],
-        offsets.BusinessDay: [DayOfWeek, DayOfMonth, DayOfYear],
-        offsets.Hour: [HourOfDay, DayOfWeek, DayOfMonth, DayOfYear],
-        offsets.Minute: [
-            MinuteOfHour,
-            HourOfDay,
-            DayOfWeek,
-            DayOfMonth,
-            DayOfYear,
-        ],
-        offsets.Second: [
-            SecondOfMinute,
-            MinuteOfHour,
-            HourOfDay,
-            DayOfWeek,
-            DayOfMonth,
-            DayOfYear,
-        ],
-    }
-
-    offset = to_offset(freq_str)
-
-    for offset_type, feature_classes in features_by_offsets.items():
-        if isinstance(offset, offset_type):
-            return [cls() for cls in feature_classes]
-
-    supported_freq_msg = f"""
-    Unsupported frequency {freq_str}
-    The following frequencies are supported:
-        Y   - yearly
-            alias: A
-        M   - monthly
-        W   - weekly
-        D   - daily
-        B   - business days
-        H   - hourly
-        T   - minutely
-            alias: min
-        S   - secondly
-    """
-    raise RuntimeError(supported_freq_msg)
-
-
-def time_features(dates, freq="h"):
-    return np.vstack([feat(dates) for feat in time_features_from_frequency_str(freq)])
-
-
-def extract_time_features_raw(dates: pd.DatetimeIndex, freq: str = "h") -> np.ndarray:
-    """
-    Extract raw (non-normalized) time features for timeenc=0 mode.
-
-    For hourly data: returns [month, day, weekday, hour]
-    For minute data: returns [month, day, weekday, hour, minute]
-    where minute is binned into 15-minute intervals.
-
-    Args:
-        dates: DatetimeIndex
-        freq: Frequency string (e.g., 'h' for hourly, 't' for minutely)
-
-    Returns:
-        Array of shape [len(dates), num_features] with raw time features
-    """
-    df_stamp = pd.DataFrame({"date": dates})
-    df_stamp["month"] = df_stamp.date.apply(lambda row: row.month)
-    df_stamp["day"] = df_stamp.date.apply(lambda row: row.day)
-    df_stamp["weekday"] = df_stamp.date.apply(lambda row: row.weekday())
-    df_stamp["hour"] = df_stamp.date.apply(lambda row: row.hour)
-
-    # Determine if we need minute-level features
-    # 't' = minutely in pandas, 's' = secondly, also handle patterns like '15min'
-    freq_lower = freq.lower()
-    needs_minute = freq_lower in ["t", "s"] or "min" in freq_lower
-
-    if needs_minute:
-        df_stamp["minute"] = df_stamp.date.apply(lambda row: row.minute)
-        # Bin minutes into 15-minute intervals
-        df_stamp["minute"] = df_stamp["minute"].map(lambda x: x // 15)
-
-    return df_stamp.drop(["date"], axis=1).values
-
-
-def extract_time_features(
-    dates: pd.DatetimeIndex, freq: str = "h", timeenc: int = 1
-) -> np.ndarray:
-    """
-    Extract time features from datetime index.
-    Matches the original Autoformer data_loader.py implementation.
-
-    Args:
-        dates: DatetimeIndex
-        freq: Frequency string (e.g., 'h' for hourly, 't' for minutely)
-        timeenc: Time encoding mode:
-            0 = raw integer features (month, day, weekday, hour, [minute])
-            1 = normalized features between [-0.5, 0.5]
-
-    Returns:
-        Array of shape [len(dates), num_features] with time features
-    """
-    if timeenc == 0:
-        return extract_time_features_raw(dates, freq)
-    else:  # timeenc == 1
-        # time_features returns [num_features, len(dates)], need to transpose
-        return time_features(dates, freq).transpose(1, 0)
-
-
-def construct_sliding_window_data(
-    data, seq_len, pred_len, time_increment=1, time_features=None
-):
-    """
-    Construct sliding window data with optional time features.
-
-    Args:
-        data: Data array
-        seq_len: Input sequence length
-        pred_len: Prediction length
-        time_increment: Step size for sliding window
-        time_features: Optional time features array (same length as data)
-
-    Returns:
-        If time_features is None: (x, y)
-        If time_features is provided: (x, y, x_mark, y_mark)
-    """
+def construct_sliding_window_data(data, seq_len, pred_len, time_increment=1):
     n_samples = data.shape[0] - (seq_len - 1) - pred_len
     range_ = np.arange(0, n_samples, time_increment)
     x, y = list(), list()
-
-    if time_features is not None:
-        x_mark, y_mark = list(), list()
-
-        for i in range_:
-            x.append(data[i : (i + seq_len)].T)
-            y.append(data[(i + seq_len) : (i + seq_len + pred_len)].T)
-            x_mark.append(time_features[i : (i + seq_len)])
-            y_mark.append(time_features[(i + seq_len) : (i + seq_len + pred_len)])
-
-        return np.array(x), np.array(y), np.array(x_mark), np.array(y_mark)
-    else:
-        for i in range_:
-            x.append(data[i : (i + seq_len)].T)
-            y.append(data[(i + seq_len) : (i + seq_len + pred_len)].T)
-
-        return np.array(x), np.array(y)
+    for i in range_:
+        x.append(data[i : (i + seq_len)].T)
+        y.append(data[(i + seq_len) : (i + seq_len + pred_len)].T)
+    return np.array(x), np.array(y)
 
 
+# TODO: rename this to tsmixer dataloader or wherever the original ETTh1 etc.
+# dataset originated from
 class SamformerDataloader:
     def __init__(
         self,
@@ -317,19 +73,11 @@ class SamformerDataloader:
         val_ratio=0.2,
         batch_size=32,
         sequential_comparison=False,
-        use_time_features=False,  # New parameter
-        freq="h",  # New parameter for frequency
-        timeenc=1,  # New parameter: 0=raw integers, 1=normalized (matches Autoformer)
-        embed="timeF",  # New parameter: timeF uses timeenc=1, others use timeenc=0
     ):
         file_path = (
             SCRIPT_DIR.parents[2] / "data" / "samformer_datasets" / f"{dataset}.csv"
         )
         df_raw = pd.read_csv(file_path, index_col=0)
-
-        # Convert index to datetime if not already
-        if not isinstance(df_raw.index, pd.DatetimeIndex):
-            df_raw.index = pd.to_datetime(df_raw.index)
 
         n = len(df_raw)
         self.seq_len = seq_len
@@ -337,13 +85,6 @@ class SamformerDataloader:
         self.time_increment = time_increment
         self.seed = seed
         self.batch_size = batch_size
-        self.use_time_features = use_time_features
-        self.freq = freq
-        # Determine timeenc based on embed parameter (matching Autoformer's data_factory.py)
-        self.timeenc = 0 if embed != "timeF" else 1
-        # Allow explicit override
-        if timeenc is not None and embed == "timeF":
-            self.timeenc = timeenc
 
         if dataset.startswith("ETTm"):
             train_end = 12 * 30 * 24 * 4
@@ -362,9 +103,6 @@ class SamformerDataloader:
         self.val_end = val_end
         self.test_end = test_end
 
-        # Store datetime index for time feature extraction
-        self.df_raw = df_raw
-
         self.dataloader = self.create_dataloader(
             df_raw,
             train_end,
@@ -372,14 +110,6 @@ class SamformerDataloader:
             test_end,
             sequential_comparison=sequential_comparison,
         )
-
-    def _extract_time_features_for_split(
-        self, df: pd.DataFrame
-    ) -> Optional[np.ndarray]:
-        """Extract time features for a dataframe split if enabled."""
-        if not self.use_time_features:
-            return None
-        return extract_time_features(df.index, self.freq, self.timeenc)
 
     def create_dataloader(
         self,
@@ -403,15 +133,8 @@ class SamformerDataloader:
             dataloaders_list = []
             scalers_list = []
 
-            for split_data in train_val_test_splits:
-                if self.use_time_features:
-                    train_data, val_data, test_data, train_time, val_time, test_time = (
-                        split_data
-                    )
-                else:
-                    train_data, val_data, test_data = split_data
-                    train_time = val_time = test_time = None
-
+            # TODO: maybe add possibility to not scale data at all here
+            for train_data, val_data, test_data in train_val_test_splits:
                 # Create scaler for this split and fit on training data
                 scaler = StandardScaler()
                 scaler.fit(train_data.values)
@@ -420,56 +143,32 @@ class SamformerDataloader:
                 train_arr = scaler.transform(train_data.values)
                 val_arr = scaler.transform(val_data.values)
                 test_arr = scaler.transform(test_data.values)
+                # train_arr = train_data.values
+                # val_arr = val_data.values
+                # test_arr = test_data.values
 
                 # Apply sliding window
-                if self.use_time_features:
-                    x_train, y_train, x_train_mark, y_train_mark = (
-                        construct_sliding_window_data(
-                            train_arr,
-                            self.seq_len,
-                            self.pred_len,
-                            self.time_increment,
-                            train_time,
-                        )
-                    )
-                    x_val, y_val, x_val_mark, y_val_mark = (
-                        construct_sliding_window_data(
-                            val_arr,
-                            self.seq_len,
-                            self.pred_len,
-                            self.time_increment,
-                            val_time,
-                        )
-                    )
-                    x_test, y_test, x_test_mark, y_test_mark = (
-                        construct_sliding_window_data(
-                            test_arr,
-                            self.seq_len,
-                            self.pred_len,
-                            self.time_increment,
-                            test_time,
-                        )
-                    )
-                else:
-                    x_train, y_train = construct_sliding_window_data(
-                        train_arr, self.seq_len, self.pred_len, self.time_increment
-                    )
-                    x_val, y_val = construct_sliding_window_data(
-                        val_arr, self.seq_len, self.pred_len, self.time_increment
-                    )
-                    x_test, y_test = construct_sliding_window_data(
-                        test_arr, self.seq_len, self.pred_len, self.time_increment
-                    )
-                    x_train_mark = y_train_mark = None
-                    x_val_mark = y_val_mark = None
-                    x_test_mark = y_test_mark = None
-
-                # Create datasets and dataloaders
-                train_dataset = LabeledDataset(
-                    x_train, y_train, x_train_mark, y_train_mark
+                x_train, y_train = construct_sliding_window_data(
+                    train_arr, self.seq_len, self.pred_len, self.time_increment
                 )
-                val_dataset = LabeledDataset(x_val, y_val, x_val_mark, y_val_mark)
-                test_dataset = LabeledDataset(x_test, y_test, x_test_mark, y_test_mark)
+                x_val, y_val = construct_sliding_window_data(
+                    val_arr, self.seq_len, self.pred_len, self.time_increment
+                )
+                x_test, y_test = construct_sliding_window_data(
+                    test_arr, self.seq_len, self.pred_len, self.time_increment
+                )
+
+                # flatten target matrices
+                flatten = lambda y: y.reshape((y.shape[0], y.shape[1] * y.shape[2]))
+                y_train, y_val, y_test = (
+                    flatten(y_train),
+                    flatten(y_val),
+                    flatten(y_test),
+                )
+                # Create datasets and dataloaders
+                train_dataset = LabeledDataset(x_train, y_train)
+                val_dataset = LabeledDataset(x_val, y_val)
+                test_dataset = LabeledDataset(x_test, y_test)
 
                 train_loader = torch.utils.data.DataLoader(
                     train_dataset, batch_size=self.batch_size, shuffle=True
@@ -480,6 +179,7 @@ class SamformerDataloader:
                 test_loader = torch.utils.data.DataLoader(
                     test_dataset, batch_size=self.batch_size, shuffle=False
                 )
+                # dataloaders_list[0]['train_loader'].dataset.x[0,0,:12]
 
                 split_dataloader = {
                     "train_loader": train_loader,
@@ -502,11 +202,6 @@ class SamformerDataloader:
             val_df = df_raw[train_end - self.seq_len : val_end]
             test_df = df_raw[val_end - self.seq_len : test_end]
 
-            # Extract time features if enabled
-            train_time = self._extract_time_features_for_split(train_df)
-            val_time = self._extract_time_features_for_split(val_df)
-            test_time = self._extract_time_features_for_split(test_df)
-
             # standardize by training set
             self.scaler = StandardScaler()
             self.scaler.fit(train_df.values)
@@ -515,54 +210,28 @@ class SamformerDataloader:
             self.test_arr = self.scaler.transform(test_df.values)
 
             # apply sliding window
-            if self.use_time_features:
-                x_train, y_train, x_train_mark, y_train_mark = (
-                    construct_sliding_window_data(
-                        self.train_arr,
-                        self.seq_len,
-                        self.pred_len,
-                        self.time_increment,
-                        train_time,
-                    )
-                )
-                x_val, y_val, x_val_mark, y_val_mark = construct_sliding_window_data(
-                    self.val_arr,
-                    self.seq_len,
-                    self.pred_len,
-                    self.time_increment,
-                    val_time,
-                )
-                x_test, y_test, x_test_mark, y_test_mark = (
-                    construct_sliding_window_data(
-                        self.test_arr,
-                        self.seq_len,
-                        self.pred_len,
-                        self.time_increment,
-                        test_time,
-                    )
-                )
-            else:
-                x_train, y_train = construct_sliding_window_data(
-                    self.train_arr, self.seq_len, self.pred_len, self.time_increment
-                )
-                x_val, y_val = construct_sliding_window_data(
-                    self.val_arr, self.seq_len, self.pred_len, self.time_increment
-                )
-                x_test, y_test = construct_sliding_window_data(
-                    self.test_arr, self.seq_len, self.pred_len, self.time_increment
-                )
-                x_train_mark = y_train_mark = None
-                x_val_mark = y_val_mark = None
-                x_test_mark = y_test_mark = None
+            x_train, y_train = construct_sliding_window_data(
+                self.train_arr, self.seq_len, self.pred_len, self.time_increment
+            )
+            x_val, y_val = construct_sliding_window_data(
+                self.val_arr, self.seq_len, self.pred_len, self.time_increment
+            )
+            x_test, y_test = construct_sliding_window_data(
+                self.test_arr, self.seq_len, self.pred_len, self.time_increment
+            )
 
+            # flatten target matrices
+            # flatten = lambda y: y.reshape((y.shape[0], y.shape[1] * y.shape[2]))
+            # y_train, y_val, y_test = flatten(y_train), flatten(y_val), flatten(y_test)
             # Create datasets and dataloaders
-            train_dataset = LabeledDataset(x_train, y_train, x_train_mark, y_train_mark)
-            val_dataset = LabeledDataset(x_val, y_val, x_val_mark, y_val_mark)
-            test_dataset = LabeledDataset(x_test, y_test, x_test_mark, y_test_mark)
+            train_dataset = LabeledDataset(x_train, y_train)
+            val_dataset = LabeledDataset(x_val, y_val)
+            test_dataset = LabeledDataset(x_test, y_test)
 
             train_loader = torch.utils.data.DataLoader(
                 train_dataset, batch_size=self.batch_size, shuffle=False
             )
+            # TODO: change shuffle to false?
             val_loader = torch.utils.data.DataLoader(
                 val_dataset, batch_size=self.batch_size, shuffle=True
             )
@@ -597,69 +266,28 @@ class SamformerDataloader:
         Align stride with Darts rolling windows; default stride = seq_len for non-overlapping.
         """
         stride = stride if stride is not None else self.seq_len
-
-        # Extract time features for test data if enabled
-        test_df = self.df_raw[self.val_end - self.seq_len : self.test_end]
-        test_time = (
-            self._extract_time_features_for_split(test_df)
-            if self.use_time_features
-            else None
-        )
-
         # Rebuild x/y with the chosen stride from scaled test segment
-        if self.use_time_features:
-            x_test_sw, y_test_sw, x_test_mark, y_test_mark = (
-                construct_sliding_window_data(
-                    self.test_arr, self.seq_len, self.pred_len, stride, test_time
-                )
-            )
-        else:
-            x_test_sw, y_test_sw = construct_sliding_window_data(
-                self.test_arr, self.seq_len, self.pred_len, stride
-            )
-            x_test_mark = y_test_mark = None
-
+        x_test_sw, y_test_sw = construct_sliding_window_data(
+            self.test_arr, self.seq_len, self.pred_len, stride
+        )
         if flatten_y:
             y_test_sw = y_test_sw.reshape((y_test_sw.shape[0], -1))
-
-        ds = LabeledDataset(x_test_sw, y_test_sw, x_test_mark, y_test_mark)
+        ds = LabeledDataset(x_test_sw, y_test_sw)
         return torch.utils.data.DataLoader(ds, batch_size=batch_size, shuffle=False)
 
     def rolling_test_windows(
         self,
         step: Optional[int] = None,
-    ) -> Iterator[Tuple[torch.Tensor, ...]]:
+    ) -> Iterator[Tuple[torch.Tensor, torch.Tensor]]:
         """
-        Optional generator yielding test windows (scaled) with given step.
-        Returns: (x, y) if no time features, (x, y, x_mark, y_mark) if time features enabled
+        Optional generator yielding (x, y) test windows (scaled) with given step.
         """
         step = step if step is not None else self.seq_len
-
-        # Extract time features for test data if enabled
-        test_df = self.df_raw[self.val_end - self.seq_len : self.test_end]
-        test_time = (
-            self._extract_time_features_for_split(test_df)
-            if self.use_time_features
-            else None
+        x, y = construct_sliding_window_data(
+            self.test_arr, self.seq_len, self.pred_len, step
         )
-
-        if self.use_time_features:
-            x, y, x_mark, y_mark = construct_sliding_window_data(
-                self.test_arr, self.seq_len, self.pred_len, step, test_time
-            )
-            for i in range(x.shape[0]):
-                yield (
-                    torch.FloatTensor(x[i]),
-                    torch.FloatTensor(y[i]),
-                    torch.FloatTensor(x_mark[i]),
-                    torch.FloatTensor(y_mark[i]),
-                )
-        else:
-            x, y = construct_sliding_window_data(
-                self.test_arr, self.seq_len, self.pred_len, step
-            )
-            for i in range(x.shape[0]):
-                yield torch.FloatTensor(x[i]), torch.FloatTensor(y[i])
+        for i in range(x.shape[0]):
+            yield torch.FloatTensor(x[i]), torch.FloatTensor(y[i])
 
     def construct_multiple_train_test_split_data(
         self,
@@ -686,33 +314,26 @@ class SamformerDataloader:
                 f"Cannot create {splits_num} splits. Maximum possible splits: {max_possible_additional_splits + 1}"
             )
 
-        # First split
+        # first_train_data = data[: val_end + seq_len]
+        # first_test_data = data[val_end : val_end + pred_len]
+        # first_data_split = [first_train_data, first_test_data]
+
         first_train_data = data[:train_end]
         first_val_data = data[train_end - self.seq_len : val_end]
         first_test_data = data[val_end - self.seq_len : val_end + self.pred_len]
 
-        if self.use_time_features:
-            first_train_time = self._extract_time_features_for_split(first_train_data)
-            first_val_time = self._extract_time_features_for_split(first_val_data)
-            first_test_time = self._extract_time_features_for_split(first_test_data)
-            first_data_split = [
-                first_train_data,
-                first_val_data,
-                first_test_data,
-                first_train_time,
-                first_val_time,
-                first_test_time,
-            ]
-        else:
-            first_data_split = [first_train_data, first_val_data, first_test_data]
+        first_data_split = [first_train_data, first_val_data, first_test_data]
 
         splits.append(first_data_split)
 
         # Pre-generate evenly distributed random val_ends for remaining splits
         if splits_num > 1:
-            start_point = val_end + self.pred_len
-            end_point = len(data) - self.pred_len
+            start_point = (
+                val_end + self.pred_len
+            )  # Earliest possible start for next split
+            end_point = len(data) - self.pred_len  # Latest possible end
 
+            # Divide the available range into roughly equal segments
             total_range = end_point - start_point
             segment_size = total_range // (splits_num - 1)
 
@@ -721,12 +342,18 @@ class SamformerDataloader:
                 segment_start = start_point + i * segment_size
                 segment_end = min(start_point + (i + 1) * segment_size, end_point)
 
+                # Ensure we have at least some range in each segment
                 if segment_end > segment_start:
                     random_val_end = random.randint(segment_start, segment_end)
                     random_val_ends.append(random_val_end)
 
             # Create splits using the pre-generated val_ends
+            # val_ends mark the end of the training set
             for random_val_end in random_val_ends:
+                # TODO: hard coded train ratio, maybe change this to a parameter
+                # we take 80% of the training set for training the model
+                # the other 20% of that set for validating it and selecting the
+                # best one.
                 train_ratio = 0.8
                 train_end = int(random_val_end * train_ratio)
                 train_data = data[:train_end]
@@ -734,23 +361,7 @@ class SamformerDataloader:
                 test_data = data[
                     random_val_end - self.seq_len : random_val_end + self.pred_len
                 ]
-
-                if self.use_time_features:
-                    train_time = self._extract_time_features_for_split(train_data)
-                    val_time = self._extract_time_features_for_split(val_data)
-                    test_time = self._extract_time_features_for_split(test_data)
-                    splits.append(
-                        [
-                            train_data,
-                            val_data,
-                            test_data,
-                            train_time,
-                            val_time,
-                            test_time,
-                        ]
-                    )
-                else:
-                    splits.append([train_data, val_data, test_data])
+                splits.append([train_data, val_data, test_data])
 
         return splits
 
@@ -852,6 +463,9 @@ class CIFAR10Dataloader:
 
     def get_dataloader(self):
         return self.dataloader
+
+    def get_scaler(self):
+        return self.scaler
 
 
 class StatsforecastDataloader:
@@ -1053,12 +667,70 @@ class StatsforecastDataloader:
             # Concatenate separate train and val
             return pd.concat([self.train_df, self.val_df], ignore_index=True)
 
+    # TODO: delete?
     def get_scaler(self):
         """Get the fitted scaler if scaling was applied."""
         return self.scaler
 
+    def get_data_info(self) -> Dict:
+        """Get information about the dataset splits."""
+        info = {
+            "train_size": len(self.train_df) // len(self.get_unique_ids()),
+            "test_size": len(self.test_df) // len(self.get_unique_ids()),
+            "n_series": len(self.get_unique_ids()),
+            "unique_ids": self.get_unique_ids(),
+            "merge_train_val": self.merge_train_val,
+            "date_range": {
+                "train": (self.train_df["ds"].min(), self.train_df["ds"].max()),
+                "test": (self.test_df["ds"].min(), self.test_df["ds"].max()),
+            },
+            "split_indices": {
+                "train_end": self.train_end,
+                "val_end": self.val_end,
+                "test_end": self.test_end,
+            },
+        }
+
+        if not self.merge_train_val and self.val_df is not None:
+            info["val_size"] = len(self.val_df) // len(self.get_unique_ids())
+            info["date_range"]["val"] = (
+                self.val_df["ds"].min(),
+                self.val_df["ds"].max(),
+            )
+
+        return info
+
+    def get_scaler(self):
+        return self.scaler
+
     def get_scaler_list(self):
         return self.scalers_list
+
+    # def apply_scaler_to_dataframe(self, df, scaler, value_col="y"):
+    #     """
+    #     Apply scaler transformation to a specific column in the dataframe.
+    #
+    #     Args:
+    #         df: pandas DataFrame
+    #         scaler: fitted sklearn scaler
+    #         value_col: name of the column to transform
+    #
+    #     Returns:
+    #         DataFrame with transformed values
+    #     """
+    #     df_transformed = df.copy()
+    #     num_unique_ids = len(df["unique_id"].unique().tolist())
+    #
+    #     # Extract values, reshape for scaler (needs 2D array)
+    #     values = df[value_col].values.reshape(-1, num_unique_ids)
+    #
+    #     # Apply transformation
+    #     transformed_values = scaler.transform(values)
+    #
+    #     # Put back into dataframe
+    #     df_transformed[value_col] = transformed_values.flatten()
+    #
+    #     return df_transformed
 
     def apply_scaler_to_dataframe(self, df, scaler, value_col="y"):
         """
@@ -1196,3 +868,16 @@ class StatsforecastDataloader:
             self.scaler = self.scalers_list[0]
 
         return splits
+
+
+if __name__ == "__main__":
+    # seq_length_x, seq_length_y, y_start=1, stride = 1, transform = None, add_time_in_day=True, add_time_in_week=False
+    dataset = "ETTh1"
+    dataset = SAMFormerDatasets(dataset, query_api, 12, 12, 1, 1, None, False, False)
+
+    # Get train/val/test splits
+    train_dataset, val_dataset, test_dataset = dataset.get_split_datasets(
+        train_ratio=0.6, val_ratio=0.2
+    )
+
+    print(train_dataset, val_dataset, test_dataset)
