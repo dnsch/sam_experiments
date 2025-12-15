@@ -640,6 +640,420 @@ def _add_tsmixer_args(parser):
     return parser
 
 
+def _add_formers_common_args(parser):
+    """Add common Transformer architecture arguments shared by Formers and PatchTST."""
+
+    formers_common_group = parser.add_argument_group(
+        "Transformer Architecture (Common)",
+        "Common architecture hyperparameters shared by Formers and PatchTST models",
+    )
+
+    # Core architecture dimensions
+    formers_common_group.add_argument(
+        "--enc_in",
+        type=int,
+        default=7,
+        metavar="N",
+        help="encoder input size (number of input channels)",
+    )
+    formers_common_group.add_argument(
+        "--c_out",
+        type=int,
+        default=7,
+        metavar="N",
+        help="output size (number of output channels)",
+    )
+    formers_common_group.add_argument(
+        "--d_model",
+        type=int,
+        default=512,
+        metavar="N",
+        help="Transformer dimension of model",
+    )
+    formers_common_group.add_argument(
+        "--n_heads",
+        type=int,
+        default=8,
+        metavar="N",
+        help="number of attention heads",
+    )
+    formers_common_group.add_argument(
+        "--e_layers",
+        type=int,
+        default=2,
+        metavar="N",
+        help="number of encoder layers",
+    )
+    formers_common_group.add_argument(
+        "--d_ff",
+        type=int,
+        default=2048,
+        metavar="N",
+        help="dimension of feed-forward network (Transfomer MLP dimension)",
+    )
+
+    # Regularization
+    formers_common_group.add_argument(
+        "--dropout",
+        type=float,
+        default=0.05,
+        metavar="RATE",
+        help="dropout rate",
+    )
+    formers_common_group.add_argument(
+        "--activation",
+        type=str,
+        default="gelu",
+        choices=["gelu", "relu", "swish"],
+        metavar="ACTIVATION",
+        help="activation function",
+    )
+
+    return parser
+
+
+def _add_formers_specific_args(parser):
+    """Add Formers (Autoformer, Informer, Transformer) specific arguments."""
+
+    formers_specific_group = parser.add_argument_group(
+        "Formers Models",
+        "Formers-specific architecture hyperparameters (Autoformer, Informer, Transformer)",
+    )
+
+    # Decoder architecture
+    formers_specific_group.add_argument(
+        "--dec_in",
+        type=int,
+        default=7,
+        metavar="N",
+        help="decoder input size",
+    )
+    formers_specific_group.add_argument(
+        "--d_layers",
+        type=int,
+        default=1,
+        metavar="N",
+        help="number of decoder layers",
+    )
+
+    # Forecasting task parameters
+    formers_specific_group.add_argument(
+        "--label_len",
+        type=int,
+        default=48,
+        metavar="N",
+        help="start token length for decoder",
+    )
+
+    # Embedding
+    formers_specific_group.add_argument(
+        "--embed_type",
+        type=int,
+        default=0,
+        metavar="TYPE",
+        help="time features encoding: 0=default, 1=value+temporal+positional, 2=value+temporal, 3=value+positional, 4=value only",
+    )
+    formers_specific_group.add_argument(
+        "--embed",
+        type=str,
+        default="timeF",
+        choices=["timeF", "fixed", "learned"],
+        metavar="TYPE",
+        help="time features encoding method",
+    )
+
+    # TODO: maybe move to dataloader, maybe we already have a similar arg
+    formers_specific_group.add_argument(
+        "--freq",
+        type=str,
+        default="h",
+        metavar="FREQ",
+        help="frequency for time features encoding: s=secondly, t=minutely, h=hourly, d=daily, b=business days, w=weekly, m=monthly",
+    )
+
+    # TODO: maybe move to dataloader, maybe we already have a similar arg
+    # Model-specific parameters
+    formers_specific_group.add_argument(
+        "--moving_avg",
+        type=int,
+        default=25,
+        metavar="N",
+        help="window size of moving average (for Autoformer)",
+    )
+    formers_specific_group.add_argument(
+        "--factor",
+        type=int,
+        default=1,
+        metavar="N",
+        help="attention factor (for Informer ProbSparse attention)",
+    )
+    formers_specific_group.add_argument(
+        "--distil",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=True,
+        help="whether to use distilling in encoder (for Informer)",
+    )
+    # TODO: merge with existing "plot_attention" functionality that already has
+    # a logic to save attention weights
+    formers_specific_group.add_argument(
+        "--output_attention",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help="whether to output attention weights in encoder",
+    )
+
+    # Prediction mode
+    formers_specific_group.add_argument(
+        "--do_predict",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help="whether to predict unseen future data",
+    )
+
+    return parser
+
+
+def _add_patchtst_specific_args(parser):
+    """Add PatchTST-specific arguments (after loading common Transformer args)."""
+
+    patchtst_specific_group = parser.add_argument_group(
+        "PatchTST Specific", "PatchTST-specific architecture hyperparameters"
+    )
+
+    patchtst_specific_group.add_argument(
+        "--d_k",
+        type=int,
+        default=None,
+        metavar="N",
+        help="dimension of keys (default: d_model // n_heads)",
+    )
+    patchtst_specific_group.add_argument(
+        "--d_v",
+        type=int,
+        default=None,
+        metavar="N",
+        help="dimension of values (default: d_model // n_heads)",
+    )
+
+    # PatchTST-specific dropout
+    patchtst_specific_group.add_argument(
+        "--fc_dropout",
+        type=float,
+        default=0.05,
+        metavar="RATE",
+        help="fully connected dropout",
+    )
+    patchtst_specific_group.add_argument(
+        "--head_dropout",
+        type=float,
+        default=0.0,
+        metavar="RATE",
+        help="head dropout",
+    )
+    patchtst_specific_group.add_argument(
+        "--attn_dropout",
+        type=float,
+        default=0.0,
+        metavar="RATE",
+        help="attention dropout",
+    )
+
+    # Patch parameters
+    patchtst_specific_group.add_argument(
+        "--patch_len",
+        type=int,
+        default=16,
+        metavar="N",
+        help="patch length",
+    )
+    patchtst_specific_group.add_argument(
+        "--stride",
+        type=int,
+        default=8,
+        metavar="N",
+        help="stride for patch creation",
+    )
+    patchtst_specific_group.add_argument(
+        "--padding_patch",
+        type=str,
+        default="end",
+        choices=["end", "none"],
+        metavar="TYPE",
+        help="padding type for patches",
+    )
+
+    # Normalization - PatchTST-specific RevIN parameters
+    # patchtst_specific_group.add_argument(
+    #     "--revin",
+    #     type=str2bool,
+    #     nargs="?",
+    #     const=True,
+    #     default=True,
+    #     help="use reversible instance normalization (RevIN)",
+    # )
+    # patchtst_specific_group.add_argument(
+    #     "--affine",
+    #     type=str2bool,
+    #     nargs="?",
+    #     const=True,
+    #     default=False,
+    #     help="use affine transformation in RevIN",
+    # )
+    patchtst_specific_group.add_argument(
+        "--revin_subtract_last",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help="0: subtract mean; 1: subtract last value in RevIN",
+    )
+
+    # Decomposition
+    patchtst_specific_group.add_argument(
+        "--decomposition",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help="use series decomposition",
+    )
+    patchtst_specific_group.add_argument(
+        "--kernel_size",
+        type=int,
+        default=25,
+        metavar="N",
+        help="decomposition kernel size",
+    )
+
+    # Model architecture options
+    patchtst_specific_group.add_argument(
+        "--individual",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help="individual head for each channel",
+    )
+
+    # Normalization type
+    patchtst_specific_group.add_argument(
+        "--norm",
+        type=str,
+        default="BatchNorm",
+        choices=["BatchNorm", "LayerNorm"],
+        metavar="TYPE",
+        help="normalization type",
+    )
+
+    # Attention mechanism
+    patchtst_specific_group.add_argument(
+        "--res_attention",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=True,
+        help="use residual attention",
+    )
+    patchtst_specific_group.add_argument(
+        "--pre_norm",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help="apply normalization before attention (pre-norm vs post-norm)",
+    )
+    patchtst_specific_group.add_argument(
+        "--store_attn",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help="store attention weights",
+    )
+
+    # Positional encoding
+    patchtst_specific_group.add_argument(
+        "--pe",
+        type=str,
+        default="zeros",
+        choices=["zeros", "normal", "uniform"],
+        metavar="TYPE",
+        help="positional encoding initialization",
+    )
+    patchtst_specific_group.add_argument(
+        "--learn_pe",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=True,
+        help="learn positional encoding",
+    )
+
+    # Head configuration
+    patchtst_specific_group.add_argument(
+        "--pretrain_head",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help="use pretrained head",
+    )
+    patchtst_specific_group.add_argument(
+        "--head_type",
+        type=str,
+        default="flatten",
+        choices=["flatten", "prediction"],
+        metavar="TYPE",
+        help="head type",
+    )
+
+    # Legacy parameters (kept for compatibility)
+    patchtst_specific_group.add_argument(
+        "--max_seq_len",
+        type=int,
+        default=1024,
+        metavar="N",
+        help="maximum sequence length (legacy parameter, kept for compatibility)",
+    )
+    patchtst_specific_group.add_argument(
+        "--key_padding_mask",
+        type=str,
+        default="auto",
+        metavar="TYPE",
+        help="key padding mask type (legacy parameter, kept for compatibility)",
+    )
+    patchtst_specific_group.add_argument(
+        "--padding_var",
+        type=int,
+        default=None,
+        metavar="N",
+        help="padding variable (legacy parameter, kept for compatibility)",
+    )
+    patchtst_specific_group.add_argument(
+        "--attn_mask",
+        type=str,
+        default=None,
+        metavar="TYPE",
+        help="attention mask (legacy parameter, kept for compatibility)",
+    )
+    patchtst_specific_group.add_argument(
+        "--verbose",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help="verbose output (legacy parameter, kept for compatibility)",
+    )
+
+    return parser
+
+
 def _add_patchtst_args(parser):
     """Add PatchTST model architecture arguments."""
 
@@ -662,7 +1076,7 @@ def _add_patchtst_args(parser):
         type=int,
         default=2,
         metavar="N",
-        help="number of Transformer layers",
+        help="number of encoder layers",
     )
     patchtst_group.add_argument(
         "--n_heads",
@@ -676,7 +1090,7 @@ def _add_patchtst_args(parser):
         type=int,
         default=512,
         metavar="N",
-        help="Transformer d_model",
+        help="Transformer dimension of model",
     )
     patchtst_group.add_argument(
         "--d_ff",
@@ -713,7 +1127,7 @@ def _add_patchtst_args(parser):
         type=float,
         default=0.05,
         metavar="RATE",
-        help="fully connected dropout rate",
+        help="fully connected dropout",
     )
     patchtst_group.add_argument(
         "--head_dropout",
@@ -727,7 +1141,7 @@ def _add_patchtst_args(parser):
         type=float,
         default=0.0,
         metavar="RATE",
-        help="attention dropout rate",
+        help="attention dropout",
     )
 
     # Patch
@@ -764,32 +1178,6 @@ def _add_patchtst_args(parser):
         help="subtract last value in RevIN (default: subtract mean)",
     )
 
-    # RevIN (Reversible Instance Normalization) parameters
-    # patchtst_group.add_argument(
-    #     "--revin",
-    #     type=int,
-    #     default=1,
-    #     choices=[0, 1],
-    #     metavar="BOOL",
-    #     help="use RevIN normalization (1=True, 0=False)",
-    # )
-    # patchtst_group.add_argument(
-    #     "--affine",
-    #     type=int,
-    #     default=0,
-    #     choices=[0, 1],
-    #     metavar="BOOL",
-    #     help="RevIN affine transformation (1=True, 0=False)",
-    # )
-    # patchtst_group.add_argument(
-    #     "--subtract_last",
-    #     type=int,
-    #     default=0,
-    #     choices=[0, 1],
-    #     metavar="BOOL",
-    #     help="subtract last value (1=True) or mean (0=False)",
-    # )
-
     # Decomposition
     patchtst_group.add_argument(
         "--decomposition",
@@ -804,7 +1192,7 @@ def _add_patchtst_args(parser):
         type=int,
         default=25,
         metavar="N",
-        help="kernel size for decomposition",
+        help="deocmposition-kernel",
     )
 
     # Additional model specific params
@@ -814,7 +1202,7 @@ def _add_patchtst_args(parser):
         nargs="?",
         const=True,
         default=False,
-        help="individual head for each channel",
+        help="individual head",
     )
 
     # TODO: Might put these somewhere else
@@ -1382,20 +1770,18 @@ def get_tsmixer_config():
     return parser
 
 
-def get_patchtst_config():
+def get_formers_config():
     """
-    Complete PatchTST configuration parser.
+    Complete Formers (Autoformer, Informer, Transformer) configuration parser.
 
     Includes:
-
     - Base config (hardware, model, dataset, experiment)
+    - Time series forecast config (seq_len, horizon)
     - Deep learning config (optimizer, hyperparameters)
-
-    - Loss landscape config (visualization and plotting)
-    - PatchTST model architecture
-
-    - SAM optimization
-    - GSAM optimization
+    - Common Transformer architecture (shared with PatchTST)
+    - Formers-specific config (decoder, embeddings, etc.)
+    - SAM/GSAM optimization
+    - Loss landscape visualization
 
     """
     # Start with base config
@@ -1407,8 +1793,13 @@ def get_patchtst_config():
     # Add deep learning configuration
     parser = _add_deep_learning_args(parser)
 
-    # Add PatchTST-specific configurations
-    parser = _add_patchtst_args(parser)
+    # Add common Transformer architecture arguments
+    parser = _add_formers_common_args(parser)
+
+    # Add Formers-specific arguments
+    parser = _add_formers_specific_args(parser)
+
+    # Add SAM/GSAM optimization
     parser = _add_sam_args(parser)
     parser = _add_gsam_args(parser)
 
@@ -1416,6 +1807,81 @@ def get_patchtst_config():
     parser = _add_loss_landscape_args(parser)
 
     return parser
+
+
+def get_patchtst_config():
+    """
+    Complete PatchTST configuration parser.
+
+    Includes:
+    - Base config (hardware, model, dataset, experiment)
+    - Time series forecast config (seq_len, horizon)
+    - Deep learning config (optimizer, hyperparameters)
+    - Common Transformer architecture (shared with Formers)
+    - PatchTST-specific config (patches, RevIN, etc.)
+    - SAM/GSAM optimization
+    - Loss landscape visualization
+
+    """
+    # Start with base config
+    parser = get_base_config()
+
+    # Add time series forecast config
+    parser = _add_time_series_forecast_args(parser)
+
+    # Add deep learning configuration
+    parser = _add_deep_learning_args(parser)
+
+    # Add common Transformer architecture arguments
+    parser = _add_formers_common_args(parser)
+
+    # Add PatchTST-specific arguments
+    parser = _add_patchtst_specific_args(parser)
+
+    # Add SAM/GSAM optimization
+    parser = _add_sam_args(parser)
+    parser = _add_gsam_args(parser)
+
+    # Add loss landscape configuration
+    parser = _add_loss_landscape_args(parser)
+
+    return parser
+
+
+# def get_patchtst_config():
+#     """
+#     Complete PatchTST configuration parser.
+#
+#     Includes:
+#
+#     - Base config (hardware, model, dataset, experiment)
+#     - Deep learning config (optimizer, hyperparameters)
+#
+#     - Loss landscape config (visualization and plotting)
+#     - PatchTST model architecture
+#
+#     - SAM optimization
+#     - GSAM optimization
+#
+#     """
+#     # Start with base config
+#     parser = get_base_config()
+#
+#     # Add time series forecast config
+#     parser = _add_time_series_forecast_args(parser)
+#
+#     # Add deep learning configuration
+#     parser = _add_deep_learning_args(parser)
+#
+#     # Add PatchTST-specific configurations
+#     parser = _add_patchtst_args(parser)
+#     parser = _add_sam_args(parser)
+#     parser = _add_gsam_args(parser)
+#
+#     # Add loss landscape configuration
+#     parser = _add_loss_landscape_args(parser)
+#
+#     return parser
 
 
 def get_auto_arima_config():

@@ -645,7 +645,8 @@ def _add_patchtst_args(parser):
 
     # PatchTST specific arguments
     patchtst_group = parser.add_argument_group(
-        "PatchTST Model", "PatchTST-specific model architecture hyperparameters"
+        "PatchTST Model",
+        "PatchTST-specific model architecture hyperparameters. Help descriptions taken from patchtst_finetune.py if they existed there.",
     )
 
     # architecture
@@ -668,21 +669,21 @@ def _add_patchtst_args(parser):
         type=int,
         default=8,
         metavar="N",
-        help="number of attention heads",
+        help="number of Transformer heads",
     )
     patchtst_group.add_argument(
         "--d_model",
         type=int,
         default=512,
         metavar="N",
-        help="dimension of model",
+        help="Transformer dimension of model",
     )
     patchtst_group.add_argument(
         "--d_ff",
         type=int,
         default=2048,
         metavar="N",
-        help="dimension of feedforward network",
+        help="Transformer MLP dimension",
     )
     patchtst_group.add_argument(
         "--d_k",
@@ -705,28 +706,28 @@ def _add_patchtst_args(parser):
         type=float,
         default=0.05,
         metavar="RATE",
-        help="dropout rate",
+        help="dropout",
     )
     patchtst_group.add_argument(
         "--fc_dropout",
         type=float,
         default=0.05,
         metavar="RATE",
-        help="fully connected dropout rate",
+        help="fully connected dropout",
     )
     patchtst_group.add_argument(
         "--head_dropout",
         type=float,
-        default=0.0,
+        default=0,
         metavar="RATE",
-        help="head dropout rate",
+        help="head dropout",
     )
     patchtst_group.add_argument(
         "--attn_dropout",
         type=float,
         default=0.0,
         metavar="RATE",
-        help="attention dropout rate",
+        help="attention dropout",
     )
 
     # Patch
@@ -763,32 +764,6 @@ def _add_patchtst_args(parser):
         help="subtract last value in RevIN (default: subtract mean)",
     )
 
-    # RevIN (Reversible Instance Normalization) parameters
-    # patchtst_group.add_argument(
-    #     "--revin",
-    #     type=int,
-    #     default=1,
-    #     choices=[0, 1],
-    #     metavar="BOOL",
-    #     help="use RevIN normalization (1=True, 0=False)",
-    # )
-    # patchtst_group.add_argument(
-    #     "--affine",
-    #     type=int,
-    #     default=0,
-    #     choices=[0, 1],
-    #     metavar="BOOL",
-    #     help="RevIN affine transformation (1=True, 0=False)",
-    # )
-    # patchtst_group.add_argument(
-    #     "--subtract_last",
-    #     type=int,
-    #     default=0,
-    #     choices=[0, 1],
-    #     metavar="BOOL",
-    #     help="subtract last value (1=True) or mean (0=False)",
-    # )
-
     # Decomposition
     patchtst_group.add_argument(
         "--decomposition",
@@ -803,7 +778,7 @@ def _add_patchtst_args(parser):
         type=int,
         default=25,
         metavar="N",
-        help="kernel size for decomposition",
+        help="deocmposition-kernel",
     )
 
     # Additional model specific params
@@ -813,7 +788,7 @@ def _add_patchtst_args(parser):
         nargs="?",
         const=True,
         default=False,
-        help="individual head for each channel",
+        help="individual head",
     )
 
     # TODO: Might put these somewhere else

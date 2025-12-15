@@ -128,7 +128,7 @@ def main():
         enc_in=args.enc_in,
         seq_len=args.seq_len,
         pred_len=args.horizon,
-        n_layers=args.n_layers,
+        e_layers=args.e_layers,
         n_heads=args.n_heads,
         d_model=args.d_model,
         d_ff=args.d_ff,
