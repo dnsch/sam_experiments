@@ -13,7 +13,7 @@ sys.path.append(str(SCRIPT_DIR.parents[2] / "lib" / "utils" / "loss_landscape"))
 
 # from src.models.time_series.patchtst import PatchTST
 
-from src.models.time_series.patchtst.PatchTST_test import PatchTST
+from src.models.time_series.patchtst.patchtst import PatchTST
 from src.engines.patchtst_engine import PatchTST_Engine
 from src.utils.args import get_patchtst_config
 from src.utils.dataloader import (
