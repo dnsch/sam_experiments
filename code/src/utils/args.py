@@ -85,11 +85,11 @@ def get_base_config():
     model_group.add_argument(
         "--metrics",
         type=str,
-        default="smape",
-        # choices=["smape", "mase", "rmse", "mae", "mape"],
+        nargs="+",
+        default=["rmse", "mae", "mape"],
         choices=["mse", "rmse", "mae", "mape"],
-        metavar="METRICS",
-        help="Additional metrics to compute: mse | mae | rmse | mape",
+        metavar="METRIC",
+        help="Additional metrics to compute (can specify multiple): mse | mae | rmse | mape",
     )
 
     # Dataset
@@ -1471,6 +1471,13 @@ def _add_auto_arima_args(parser):
         default=1,
         metavar="N",
         help="maximum seasonal differencing order",
+    )
+    auto_arima_group.add_argument(
+        "--alias",
+        type=str,
+        default="AutoARIMA",
+        metavar="ALIAS",
+        help="Model alias name",
     )
 
     return parser

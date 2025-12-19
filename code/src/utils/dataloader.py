@@ -19,6 +19,7 @@ from typing import Optional, Iterator, Tuple, Dict, List
 
 # Statsforecast Dataloader
 
+# from code.src.utils.paths import get_samformer_dataset_path
 from src.utils.model_utils import statsforecast_to_tensor
 
 # For pandas offset parsing (matching original Autoformer)
@@ -27,6 +28,7 @@ from pandas.tseries import offsets
 from pandas.tseries.frequencies import to_offset
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+from src.utils.paths import get_samformer_dataset_path
 
 
 # Taken from:
@@ -322,9 +324,13 @@ class SamformerDataloader:
         timeenc=1,  # New parameter: 0=raw integers, 1=normalized (matches Autoformer)
         embed="timeF",  # New parameter: timeF uses timeenc=1, others use timeenc=0
     ):
-        file_path = (
-            SCRIPT_DIR.parents[2] / "data" / "samformer_datasets" / f"{dataset}.csv"
-        )
+        # file_path = (
+        #     SCRIPT_DIR.parents[2] / "data" / "samformer_datasets" / f"{dataset}.csv"
+        # )
+        file_path = get_samformer_dataset_path(dataset=dataset)
+        import pdb
+
+        pdb.set_trace()
         df_raw = pd.read_csv(file_path, index_col=0)
 
         # Convert index to datetime if not already
