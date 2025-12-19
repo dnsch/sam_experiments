@@ -1,11 +1,12 @@
-import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+from typing import Any, Optional, Tuple
 import argparse
 
 import numpy as np
 import torch
+
+from src.utils.paths import get_experiment_results_dir
 
 
 class BaseExperiment(ABC):
@@ -13,8 +14,6 @@ class BaseExperiment(ABC):
     Base class for all experiment types.
 
     Provides common infrastructure:
-        - Script directory detection
-        - Path setup
         - Configuration parsing
         - Logging setup
         - Seed management
@@ -22,7 +21,7 @@ class BaseExperiment(ABC):
     Subclasses must implement:
         - get_config_parser(): Return argparse parser
         - get_model_name(): Return model name string
-        - get_path_config(): Return path configuration dict
+        - get_results_subdir(): Return results subdirectory name
         - get_log_dir_components(args): Return log directory path components
         - setup_dataloader(args, logger): Setup and return dataloader
         - run(): Main entry point
@@ -30,55 +29,10 @@ class BaseExperiment(ABC):
     """
 
     def __init__(self):
-        self.script_dir = self._get_script_dir()
-        self._setup_paths()
-
         # Common state - will be set during setup
         self.args: Optional[argparse.Namespace] = None
         self.log_dir: Optional[Path] = None
         self.logger = None
-
-    # =========================================================================
-    # Path Infrastructure
-    # =========================================================================
-
-    def _get_script_dir(self) -> Path:
-        """Get the directory of the calling script."""
-        import inspect
-
-        for frame_info in inspect.stack():
-            if frame_info.filename != __file__:
-                return Path(frame_info.filename).resolve().parent
-        return Path(__file__).resolve().parent
-
-    @abstractmethod
-    def get_path_config(self) -> Dict[str, Any]:
-        """
-        Return path configuration.
-
-        Expected keys:
-            - 'sys_path_parents': List[int] - parent levels to add to sys.path
-            - 'results_parent': int - parent level for results directory
-            - 'results_subdir': str - subdirectory under results/
-
-        """
-        pass
-
-    def _setup_paths(self):
-        """Setup sys.path entries based on path config."""
-        config = self.get_path_config()
-        for level in config.get("sys_path_parents", []):
-            path = self.script_dir.parents[level]
-            path_str = str(path)
-            if path_str not in sys.path:
-                sys.path.append(path_str)
-
-    def _get_base_results_dir(self) -> Path:
-        """Get the base results directory."""
-        config = self.get_path_config()
-        return (
-            self.script_dir.parents[config["results_parent"]] / "results" / config["results_subdir"]
-        )
 
     # =========================================================================
     # Abstract Methods
@@ -92,6 +46,15 @@ class BaseExperiment(ABC):
     @abstractmethod
     def get_model_name(self) -> str:
         """Return the model name string."""
+        pass
+
+    @abstractmethod
+    def get_results_subdir(self) -> str:
+        """
+        Return the subdirectory name under results/.
+
+        Examples: 'standard', 'sequential_comparison'
+        """
         pass
 
     @abstractmethod
@@ -132,12 +95,10 @@ class BaseExperiment(ABC):
         parser = self.get_config_parser()
         args = parser.parse_args()
         args.model_name = self.get_model_name()
-
-        # Store parser reference if needed
         args._parser = parser
 
         # Build log directory path
-        base_dir = self._get_base_results_dir()
+        base_dir = get_experiment_results_dir(self.get_results_subdir())
         components = self.get_log_dir_components(args)
 
         log_dir = base_dir.joinpath(*components)
