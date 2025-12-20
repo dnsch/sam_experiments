@@ -1,16 +1,7 @@
-# code/experiments/deep_learning/patchtst/standard_training.py
-
-import sys
-from pathlib import Path
-
-SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(SCRIPT_DIR.parents[2]))
-
 from src.base.torch_standard_experiment import (
     TorchStandardExperiment,
     run_standard_experiment,
 )
-
 from src.models.time_series.formers.patchtst import PatchTST
 from src.engines.patchtst_engine import PatchTST_Engine
 from src.utils.args import get_patchtst_config
