@@ -1,17 +1,10 @@
-import sys
-from pathlib import Path
-
-SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(SCRIPT_DIR.parents[2]))
-sys.path.insert(0, str(SCRIPT_DIR.parents[4]))
+from statsforecast.models import AutoARIMA
 
 from src.base.nixtla_sequential_comparison import (
     NixtlaSequentialComparison,
     run_sequential_comparison,
 )
-
 from src.utils.args import get_auto_arima_config
-from statsforecast.models import AutoARIMA
 
 
 class AutoARIMATraining(NixtlaSequentialComparison):
@@ -25,16 +18,16 @@ class AutoARIMATraining(NixtlaSequentialComparison):
 
     def create_statsforecast_model(self, args):
         return AutoARIMA(
-            season_length=24,
-            max_p=3,
-            max_q=3,
-            max_P=1,
-            max_Q=1,
-            d=1,
-            D=1,
+            season_length=args.seasonal_periods,
+            max_p=args.max_p,
+            max_q=args.max_q,
+            max_P=args.max_P,
+            max_Q=args.max_Q,
+            d=args.d,
+            D=args.D,
             stepwise=True,
             approximation=True,
-            seasonal=True,
+            seasonal=args.seasonal,
             ic="aic",
         )
 

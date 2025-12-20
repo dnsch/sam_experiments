@@ -22,16 +22,12 @@ class NixtlaSequentialComparison(BaseExperiment):
     """
 
     # =========================================================================
-    # Path Configuration
+    # Path Configuration (implements BaseExperiment abstract methods)
     # =========================================================================
 
-    def get_path_config(self) -> Dict[str, Any]:
-        """Path configuration for nixtla experiments."""
-        return {
-            "sys_path_parents": [4, 5],
-            "results_parent": 5,
-            "results_subdir": "sequential_comparison",
-        }
+    def get_results_subdir(self) -> str:
+        """Results go under results/sequential_comparison/"""
+        return "sequential_comparison"
 
     def get_log_dir_components(self, args: argparse.Namespace) -> Tuple[str, ...]:
         """Return log directory path components."""
@@ -163,9 +159,6 @@ class NixtlaSequentialComparison(BaseExperiment):
             logger.info(f"Experiment {idx}: {result}")
 
         return results
-
-
-# Backward compatibility alias
 
 
 def run_sequential_comparison(training_class: type):

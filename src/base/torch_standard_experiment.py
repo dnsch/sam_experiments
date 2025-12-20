@@ -46,31 +46,12 @@ class TorchStandardExperiment(BaseExperiment):
         self.scaler = None
 
     # =========================================================================
-    # Path Configuration
+    # Path Configuration (implements BaseExperiment abstract methods)
     # =========================================================================
 
-    def get_path_config(self) -> Dict[str, Any]:
-        """Path configuration for torch experiments."""
-        return {
-            "sys_path_parents": [1, 2],
-            "results_parent": 3,
-            "results_subdir": "standard",
-            "optional_paths": [
-                ("lib", "utils", "pyhessian"),
-                ("lib", "utils", "loss_landscape"),
-            ],
-        }
-
-    def _setup_paths(self):
-        """Setup paths including optional utility paths."""
-        super()._setup_paths()
-
-        config = self.get_path_config()
-        for path_parts in config.get("optional_paths", []):
-            path = self.script_dir.parents[2].joinpath(*path_parts)
-            path_str = str(path)
-            if path_str not in sys.path:
-                sys.path.append(path_str)
+    def get_results_subdir(self) -> str:
+        """Results go under results/standard/"""
+        return "standard"
 
     def get_log_dir_components(self, args: argparse.Namespace) -> Tuple[str, ...]:
         """Return log directory path components."""
@@ -223,10 +204,6 @@ class TorchStandardExperiment(BaseExperiment):
         logger,
     ) -> Tuple[torch.optim.Optimizer, Any]:
         """Setup optimizer and learning rate scheduler with SAM/GSAM support."""
-        from src.utils.samformer_utils.sam import SAM
-        from lib.optimizers.gsam.gsam.gsam import GSAM
-        from lib.optimizers.gsam.gsam.scheduler import LinearScheduler
-
         optimizer = self.setup_optimizer(model, args, logger)
         lr_scheduler = None
 
@@ -403,9 +380,6 @@ class TorchStandardExperiment(BaseExperiment):
         self.post_training_hooks(args, self.model, self.dataloader, log_dir, logger, loss_fn)
 
         return result
-
-
-# Backward compatibility alias
 
 
 def run_standard_experiment(experiment_class: type):

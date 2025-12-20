@@ -1,22 +1,7 @@
-# code/experiments/deep_learning/autoformer/standard_training.py
-
-import sys
-from pathlib import Path
-
-
-# Add base training to path
-
-SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(SCRIPT_DIR.parents[2]))
-import pdb
-
-# pdb.set_trace()
-
 from src.base.torch_standard_experiment import (
     TorchStandardExperiment,
     run_standard_experiment,
 )
-
 from src.models.time_series.formers.autoformer import Autoformer
 from src.engines.autoformer_engine import Autoformer_Engine
 from src.utils.args import get_autoformer_config
