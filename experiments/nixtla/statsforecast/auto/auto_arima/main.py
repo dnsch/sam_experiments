@@ -63,9 +63,7 @@ def get_config():
     return args, log_dir, logger
 
 
-def run_experiments_on_data_list(
-    data_list, scaler_list=None, args=None, logger=None, log_dir=None
-):
+def run_experiments_on_data_list(data_list, scaler_list=None, args=None, logger=None, log_dir=None):
     """
     Execute training for each data entry in data_list using StatsForecast/AutoARIMA.
 

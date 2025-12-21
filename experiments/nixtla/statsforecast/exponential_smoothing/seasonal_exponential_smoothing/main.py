@@ -1,5 +1,3 @@
-# experiments/sequential_comparison/seasonal_exponential_smoothing/sequential_comparison.py
-
 from statsforecast.models import SeasonalExponentialSmoothingOptimized
 
 from src.base.nixtla_sequential_comparison import (

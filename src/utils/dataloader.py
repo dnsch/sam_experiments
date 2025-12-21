@@ -322,9 +322,6 @@ class SamformerDataloader:
         #     SCRIPT_DIR.parents[2] / "data" / "samformer_datasets" / f"{dataset}.csv"
         # )
         file_path = get_samformer_dataset_path(dataset=dataset)
-        import pdb
-
-        pdb.set_trace()
         df_raw = pd.read_csv(file_path, index_col=0)
 
         # Convert index to datetime if not already
@@ -760,9 +757,9 @@ class CIFAR10Dataloader:
             test_loader = torch.load(testloader_path)
             return train_loader, test_loader
 
-        assert (
-            split_idx < data_split
-        ), "the index of data partition should be smaller than the total number of split"
+        assert split_idx < data_split, (
+            "the index of data partition should be smaller than the total number of split"
+        )
 
         normalize = transforms.Normalize(
             mean=[x / 255.0 for x in [125.3, 123.0, 113.9]],

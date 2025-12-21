@@ -19,6 +19,9 @@ class NixtlaEngine:
     and evaluating statistical and ML-based forecasting models from the Nixtla ecosystem.
     """
 
+    # TODO: scaler None here, that means we can't scale the data back
+    # but as we compare it to other scaled data and preds anyway, maybe
+    # this option is not needed
     def __init__(
         self,
         model,
