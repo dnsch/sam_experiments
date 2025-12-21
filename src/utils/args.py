@@ -201,9 +201,7 @@ def _add_deep_learning_args(parser):
         help="device to use for training (cpu or cuda:0, cuda:1, etc.)",
     )
 
-    deep_learning_group = parser.add_argument_group(
-        "Deep Learning", "Deep Learning settings"
-    )
+    deep_learning_group = parser.add_argument_group("Deep Learning", "Deep Learning settings")
 
     # Optimizer
     deep_learning_group.add_argument(
@@ -276,7 +274,7 @@ def _add_deep_learning_args(parser):
         exp_group.add_argument(
             "--patience",
             type=int,
-            default=None,
+            default=1,
             metavar="N",
             help="patience for early stopping (number of epochs without improvement)",
         )
@@ -428,9 +426,7 @@ def _add_loss_landscape_args(parser):
     )
 
     # Plot parameters group
-    plot_group = parser.add_argument_group(
-        "Loss Landscape Visualization", "Plot Parameters"
-    )
+    plot_group = parser.add_argument_group("Loss Landscape Visualization", "Plot Parameters")
     plot_group.add_argument(
         "--proj_file",
         default="",
@@ -1350,9 +1346,7 @@ def _add_statsforecast_args(parser):
 
 def _add_auto_arima_args(parser):
     """Add Auto ARIMA arguments."""
-    auto_arima_group = parser.add_argument_group(
-        "Auto ARIMA", "Auto ARIMA model-specific settings"
-    )
+    auto_arima_group = parser.add_argument_group("Auto ARIMA", "Auto ARIMA model-specific settings")
 
     # StatsForecast specific parameters
     # TODO: change this some auto value as in the code down below
@@ -1485,9 +1479,7 @@ def _add_auto_arima_args(parser):
 
 def _add_auto_mfles_args(parser):
     """Add Auto MFLES arguments."""
-    auto_mfles_group = parser.add_argument_group(
-        "Auto MFLES", "Auto MFLES model-specific settings"
-    )
+    auto_mfles_group = parser.add_argument_group("Auto MFLES", "Auto MFLES model-specific settings")
 
     # MFLES specific parameters
     auto_mfles_group.add_argument(
@@ -1548,9 +1540,7 @@ def _add_auto_mfles_args(parser):
 
 def _add_auto_tbats_args(parser):
     """Add Auto TBATS arguments."""
-    auto_tbats_group = parser.add_argument_group(
-        "Auto TBATS", "Auto TBATS model-specific settings"
-    )
+    auto_tbats_group = parser.add_argument_group("Auto TBATS", "Auto TBATS model-specific settings")
 
     # TBATS specific parameters
     auto_tbats_group.add_argument(
