@@ -52,6 +52,7 @@ class LabeledDataset(Dataset):
         """
         self.x = torch.FloatTensor(x)
         self.y = torch.FloatTensor(y)
+        # Extra data handling needed for Autoformer, TSMixerExt
         self.x_mark = torch.FloatTensor(x_mark) if x_mark is not None else None
         self.y_mark = torch.FloatTensor(y_mark) if y_mark is not None else None
         self.has_time_features = x_mark is not None
@@ -63,6 +64,7 @@ class LabeledDataset(Dataset):
         examples = self.x[idx]
         labels = self.y[idx]
 
+        # Extra data handling needed for Autoformer, TSMixerExt
         if self.has_time_features:
             x_time_features = self.x_mark[idx]
             y_time_features = self.y_mark[idx]
@@ -301,6 +303,81 @@ def construct_sliding_window_data(data, seq_len, pred_len, time_increment=1, tim
         return np.array(x), np.array(y)
 
 
+# Extra data handling needed for TSMixerExt
+class TSMixerExtDataset(Dataset):
+    """
+    Dataset for TSMixerExt that provides all required inputs:
+    - x_hist: Historical time series
+    - x_extra_hist: Extra historical features (e.g., time features)
+    - x_extra_future: Future known features (e.g., time features for prediction horizon)
+    - x_static: Static features (e.g., channel embeddings or zeros)
+    - y: Target values
+
+    """
+
+    def __init__(
+        self,
+        x: np.ndarray,
+        y: np.ndarray,
+        x_mark: Optional[np.ndarray] = None,
+        y_mark: Optional[np.ndarray] = None,
+        static_features: Optional[np.ndarray] = None,
+        num_static_features: int = 1,
+    ):
+        """
+        Args:
+            x: Historical data (n_samples, num_channels, seq_len)
+            y: Target data (n_samples, num_channels, horizon)
+            x_mark: Time features for historical period (n_samples, seq_len, num_time_features)
+            y_mark: Time features for prediction period (n_samples, horizon, num_time_features)
+            static_features: Static features (n_samples, static_channels) or None for zeros
+            num_static_features: Number of static features if generating zeros
+        """
+        self.x = torch.FloatTensor(x)
+        self.y = torch.FloatTensor(y)
+
+        n_samples = x.shape[0]
+
+        # Handle extra historical features (use time features or zeros)
+        if x_mark is not None:
+            self.x_extra_hist = torch.FloatTensor(x_mark)
+        else:
+            # Create placeholder zeros: (n_samples, seq_len, 1)
+            seq_len = x.shape[1] if x.ndim == 2 else x.shape[2]
+            self.x_extra_hist = torch.zeros(n_samples, seq_len, 1)
+
+        # Handle extra future features (use time features or zeros)
+        if y_mark is not None:
+            self.x_extra_future = torch.FloatTensor(y_mark)
+        else:
+            # Create placeholder zeros: (n_samples, horizon, 1)
+            horizon = y.shape[1] if y.ndim == 2 else y.shape[2]
+            self.x_extra_future = torch.zeros(n_samples, horizon, 1)
+
+        # Handle static features
+        if static_features is not None:
+            self.x_static = torch.FloatTensor(static_features)
+        else:
+            # Create placeholder zeros: (n_samples, num_static_features)
+            self.x_static = torch.zeros(n_samples, num_static_features)
+
+    def __len__(self):
+        return self.x.shape[0]
+
+    def __getitem__(self, idx):
+        # Transpose x and y from (num_channels, seq_len) to (seq_len, num_channels)
+        x_hist = self.x[idx].T if self.x[idx].dim() == 2 else self.x[idx]
+        y = self.y[idx].T if self.y[idx].dim() == 2 else self.y[idx]
+
+        return (
+            x_hist,  # (seq_len, num_channels)
+            self.x_extra_hist[idx],  # (seq_len, extra_channels)
+            self.x_extra_future[idx],  # (horizon, extra_channels)
+            self.x_static[idx],  # (static_channels,)
+            y,  # (horizon, num_channels)
+        )
+
+
 class SamformerDataloader:
     def __init__(
         self,
@@ -313,10 +390,14 @@ class SamformerDataloader:
         val_ratio=0.2,
         batch_size=32,
         sequential_comparison=False,
+        # New parameters for Autoformer
         use_time_features=False,  # New parameter
         freq="h",  # New parameter for frequency
         timeenc=1,  # New parameter: 0=raw integers, 1=normalized (matches Autoformer)
         embed="timeF",  # New parameter: timeF uses timeenc=1, others use timeenc=0
+        # New parameters for TSMixerExt
+        model_type="standard",  # "standard" or "tsmixer_ext"
+        num_static_features=1,  # Number of static features for TSMixerExt
     ):
         # file_path = (
         #     SCRIPT_DIR.parents[2] / "data" / "samformer_datasets" / f"{dataset}.csv"
@@ -334,6 +415,7 @@ class SamformerDataloader:
         self.time_increment = time_increment
         self.seed = seed
         self.batch_size = batch_size
+        # Autoformer init
         self.use_time_features = use_time_features
         self.freq = freq
         # Determine timeenc based on embed parameter (matching Autoformer's data_factory.py)
@@ -341,6 +423,14 @@ class SamformerDataloader:
         # Allow explicit override
         if timeenc is not None and embed == "timeF":
             self.timeenc = timeenc
+
+        # TSMixerExt init
+        self.model_type = model_type
+        self.num_static_features = num_static_features
+
+        # Force time features for TSMixerExt (used as extra channels)
+        if model_type == "tsmixer_ext":
+            self.use_time_features = True
 
         if dataset.startswith("ETTm"):
             train_end = 12 * 30 * 24 * 4
@@ -452,9 +542,34 @@ class SamformerDataloader:
                     x_test_mark = y_test_mark = None
 
                 # Create datasets and dataloaders
-                train_dataset = LabeledDataset(x_train, y_train, x_train_mark, y_train_mark)
-                val_dataset = LabeledDataset(x_val, y_val, x_val_mark, y_val_mark)
-                test_dataset = LabeledDataset(x_test, y_test, x_test_mark, y_test_mark)
+                #
+                # special handling needed for tsmixerex
+                if self.model_type == "tsmixer_ext":
+                    train_dataset = TSMixerExtDataset(
+                        x_train,
+                        y_train,
+                        x_mark=x_train_mark,
+                        y_mark=y_train_mark,
+                        num_static_features=self.num_static_features,
+                    )
+                    val_dataset = TSMixerExtDataset(
+                        x_val,
+                        y_val,
+                        x_mark=x_val_mark,
+                        y_mark=y_val_mark,
+                        num_static_features=self.num_static_features,
+                    )
+                    test_dataset = TSMixerExtDataset(
+                        x_test,
+                        y_test,
+                        x_mark=x_test_mark,
+                        y_mark=y_test_mark,
+                        num_static_features=self.num_static_features,
+                    )
+                else:
+                    train_dataset = LabeledDataset(x_train, y_train, x_train_mark, y_train_mark)
+                    val_dataset = LabeledDataset(x_val, y_val, x_val_mark, y_val_mark)
+                    test_dataset = LabeledDataset(x_test, y_test, x_test_mark, y_test_mark)
 
                 train_loader = torch.utils.data.DataLoader(
                     train_dataset, batch_size=self.batch_size, shuffle=True
@@ -537,9 +652,34 @@ class SamformerDataloader:
                 x_test_mark = y_test_mark = None
 
             # Create datasets and dataloaders
-            train_dataset = LabeledDataset(x_train, y_train, x_train_mark, y_train_mark)
-            val_dataset = LabeledDataset(x_val, y_val, x_val_mark, y_val_mark)
-            test_dataset = LabeledDataset(x_test, y_test, x_test_mark, y_test_mark)
+            #
+            # special handling needed for tsmixerext
+            if self.model_type == "tsmixer_ext":
+                train_dataset = TSMixerExtDataset(
+                    x_train,
+                    y_train,
+                    x_mark=x_train_mark,
+                    y_mark=y_train_mark,
+                    num_static_features=self.num_static_features,
+                )
+                val_dataset = TSMixerExtDataset(
+                    x_val,
+                    y_val,
+                    x_mark=x_val_mark,
+                    y_mark=y_val_mark,
+                    num_static_features=self.num_static_features,
+                )
+                test_dataset = TSMixerExtDataset(
+                    x_test,
+                    y_test,
+                    x_mark=x_test_mark,
+                    y_mark=y_test_mark,
+                    num_static_features=self.num_static_features,
+                )
+            else:
+                train_dataset = LabeledDataset(x_train, y_train, x_train_mark, y_train_mark)
+                val_dataset = LabeledDataset(x_val, y_val, x_val_mark, y_val_mark)
+                test_dataset = LabeledDataset(x_test, y_test, x_test_mark, y_test_mark)
 
             train_loader = torch.utils.data.DataLoader(
                 train_dataset, batch_size=self.batch_size, shuffle=False

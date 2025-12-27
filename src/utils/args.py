@@ -48,6 +48,27 @@ def str2bool(v):
         raise argparse.ArgumentTypeError("Boolean value expected.")
 
 
+def _override_argument_default(parser, dest, new_default, group_title=None):
+    """Override the default value of an existing argument.
+
+    Args:
+        parser: The argument parser
+        dest: The destination name of the argument to modify
+        new_default: The new default value
+        group_title: Optional group title to search in (searches all if None)
+    """
+    groups = parser._action_groups
+    if group_title:
+        groups = [g for g in groups if g.title == group_title]
+
+    for group in groups:
+        for action in group._group_actions:
+            if action.dest == dest:
+                action.default = new_default
+                return True
+    return False
+
+
 # Base configuration (used in all experiments)
 def get_base_config():
     """Base configuration parser with core training arguments."""
@@ -576,22 +597,15 @@ def _add_samformer_args(parser):
 def _add_tsmixer_args(parser):
     """Add TSMixer model architecture arguments."""
 
-    # TSMixer specific arguments
     tsmixer_group = parser.add_argument_group(
         "TSMixer Model", "TSMixer-specific model architecture hyperparameters"
     )
 
     tsmixer_group.add_argument(
-        "--num_channels",
-        type=int,
-        default=7,
-        metavar="N",
-        help="number of input channels",
-    )
-    tsmixer_group.add_argument(
         "--activation_fn",
         type=str,
         default="relu",
+        choices=["relu", "gelu"],
         metavar="ACTIVATION",
         help="activation function for TSMixer",
     )
@@ -631,6 +645,38 @@ def _add_tsmixer_args(parser):
         choices=["batch", "layer"],
         metavar="TYPE",
         help="type of normalization",
+    )
+
+    return parser
+
+
+def _add_tsmixer_ext_args(parser):
+    """Add TSMixerExt-specific arguments (in addition to TSMixer args)."""
+
+    tsmixer_ext_group = parser.add_argument_group(
+        "TSMixerExt Model", "TSMixerExt-specific model architecture hyperparameters"
+    )
+
+    tsmixer_ext_group.add_argument(
+        "--extra_channels",
+        type=int,
+        default=1,
+        metavar="N",
+        help="number of extra (future known) input channels",
+    )
+    tsmixer_ext_group.add_argument(
+        "--hidden_channels",
+        type=int,
+        default=64,
+        metavar="N",
+        help="number of hidden channels in mixer layers",
+    )
+    tsmixer_ext_group.add_argument(
+        "--static_channels",
+        type=int,
+        default=1,
+        metavar="N",
+        help="number of static feature channels",
     )
 
     return parser
@@ -1761,6 +1807,50 @@ def get_tsmixer_config():
     parser = _add_tsmixer_args(parser)
     parser = _add_sam_args(parser)
     parser = _add_gsam_args(parser)
+    # Add loss landscape configuration
+    parser = _add_loss_landscape_args(parser)
+
+    return parser
+
+
+def get_tsmixer_ext_config():
+    """
+    Complete TSMixerExt configuration parser.
+
+    Includes:
+    - Base config (hardware, model, dataset, experiment)
+    - Time series forecast config (seq_len, horizon)
+    - Deep learning config (optimizer, hyperparameters)
+    - TSMixer base args (activation_fn, num_blocks, dropout_rate, ff_dim, etc.)
+    - TSMixerExt-specific args (extra_channels, hidden_channels, static_channels)
+    - SAM optimization
+    - GSAM optimization
+    - Loss landscape config (visualization and plotting)
+
+    """
+    # Start with base config
+    parser = get_base_config()
+
+    # Add time series forecast config
+    parser = _add_time_series_forecast_args(parser)
+
+    # Add deep learning configuration
+    parser = _add_deep_learning_args(parser)
+
+    # Add TSMixer base args (shared with TSMixerExt)
+    parser = _add_tsmixer_args(parser)
+
+    # Add TSMixerExt-specific args
+    parser = _add_tsmixer_ext_args(parser)
+
+    # Override defaults that differ for TSMixerExt
+    _override_argument_default(parser, "normalize_before", False)
+    _override_argument_default(parser, "norm_type", "layer")
+
+    # Add SAM/GSAM optimization
+    parser = _add_sam_args(parser)
+    parser = _add_gsam_args(parser)
+
     # Add loss landscape configuration
     parser = _add_loss_landscape_args(parser)
 

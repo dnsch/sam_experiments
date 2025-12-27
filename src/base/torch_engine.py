@@ -122,14 +122,10 @@ class TorchEngine(ABC):
             return [tensor.to(self._device) for tensor in tensors]
         elif isinstance(tensors, tuple):
             return tuple(
-                tensor.to(self._device) if tensor is not None else None
-                for tensor in tensors
+                tensor.to(self._device) if tensor is not None else None for tensor in tensors
             )
         elif isinstance(tensors, dict):
-            return {
-                k: v.to(self._device) if v is not None else None
-                for k, v in tensors.items()
-            }
+            return {k: v.to(self._device) if v is not None else None for k, v in tensors.items()}
         elif tensors is None:
             return None
         return tensors.to(self._device)
@@ -313,13 +309,46 @@ class TorchEngine(ABC):
         """
         return self._current_batch
 
+    # prepare shape of predictions
+    def _prepare_predictions(self, pred: torch.Tensor) -> torch.Tensor:
+        """
+        Prepare predictions
+
+        Override this method in subclasses to reshape predictions to match
+        target dimensions before computing loss/metrics.
+
+        Default implementation: returns pred unchanged.
+
+        Args:
+            pred: Model predictions
+
+        Returns:
+            prepared_pred with matching shape
+        """
+        return pred
+
+    def _prepare_ground_truths(self, y_batch: torch.Tensor) -> torch.Tensor:
+        """
+        Prepare ground truths
+
+        Override this method in subclasses to reshape ground truths to match
+        target dimensions before computing loss/metrics.
+
+        Default implementation: returns y_batch unchanged.
+
+        Args:
+            y_batch: ground truths
+
+        Returns:
+            prepared_y_batch with matching shape
+        """
+        return y_batch
+
     # ==========================================================================
     # Metrics
     # ==========================================================================
 
-    def _initialize_metrics(
-        self, metric_names: Optional[List[str]] = None
-    ) -> Dict[str, Any]:
+    def _initialize_metrics(self, metric_names: Optional[List[str]] = None) -> Dict[str, Any]:
         """
         Initialize metric calculators from metric name strings using the
         get_metric_objects function from utils/metrics.py.
@@ -403,11 +432,10 @@ class TorchEngine(ABC):
         Returns:
             Loss value as tensor
         """
+
         return self._loss_fn(pred, target)
 
-    def _compute_metrics(
-        self, pred: torch.Tensor, target: torch.Tensor
-    ) -> Dict[str, float]:
+    def _compute_metrics(self, pred: torch.Tensor, target: torch.Tensor) -> Dict[str, float]:
         """
         Compute all metrics: loss + additional metrics from the metrics list.
 
@@ -428,8 +456,6 @@ class TorchEngine(ABC):
         # Compute additional metrics
         for metric_name, metric_object in self._metrics.items():
             try:
-                pred = pred
-                target = target
                 metric_value = metric_object(pred, target)
 
                 # TODO: test if this works
@@ -458,9 +484,7 @@ class TorchEngine(ABC):
         """
         return self._compute_metrics(preds, labels)
 
-    def _compute_test_metrics(
-        self, preds: torch.Tensor, labels: torch.Tensor
-    ) -> Dict[str, float]:
+    def _compute_test_metrics(self, preds: torch.Tensor, labels: torch.Tensor) -> Dict[str, float]:
         """
         Compute test metrics and log detailed results.
         Override for custom test evaluation.
@@ -479,8 +503,9 @@ class TorchEngine(ABC):
         for name, value in metrics.items():
             self._logger.info(f"Test {name.upper()}: {value:.4f}")
 
-        # Per-horizon metrics
-        horizon_metrics = {metric: [] for metric in self._metrics}
+        # Per-horizon metrics - include ALL metric names (loss + additional metrics)
+        all_metric_names = self._get_metric_names()
+        horizon_metrics = {metric: [] for metric in all_metric_names}
 
         for i in range(self.model.horizon):
             horizon_pred = preds[:, :, i].contiguous()
@@ -490,9 +515,7 @@ class TorchEngine(ABC):
             horizon_result = self._compute_metrics(horizon_pred, horizon_true)
 
             # Log horizon metrics
-            metric_str = ", ".join(
-                [f"{k.upper()}: {v:.4f}" for k, v in horizon_result.items()]
-            )
+            metric_str = ", ".join([f"{k.upper()}: {v:.4f}" for k, v in horizon_result.items()])
             self._logger.info(f"Horizon {i + 1}, {metric_str}")
 
             # Store for averaging
@@ -533,12 +556,8 @@ class TorchEngine(ABC):
             lr: Current learning rate
         """
         # Build metric strings
-        train_str = ", ".join(
-            [f"Train {k.upper()}: {v:.4f}" for k, v in train_metrics.items()]
-        )
-        val_str = ", ".join(
-            [f"Val {k.upper()}: {v:.4f}" for k, v in val_metrics.items()]
-        )
+        train_str = ", ".join([f"Train {k.upper()}: {v:.4f}" for k, v in train_metrics.items()])
+        val_str = ", ".join([f"Val {k.upper()}: {v:.4f}" for k, v in val_metrics.items()])
 
         message = (
             f"Epoch: {epoch + 1:03d}, \n"
@@ -668,13 +687,12 @@ class TorchEngine(ABC):
 
             # TODO: maybe remove flatten output
             out_batch = self.model(x_batch, False)
+
             loss = self._compute_loss(out_batch, y_batch)
 
             loss.backward()
             if self._clip_grad_value != 0:
-                torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(), self._clip_grad_value
-                )
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self._clip_grad_value)
             self._optimizer.second_step(zero_grad=True)
 
         elif self._gsam:
@@ -689,9 +707,7 @@ class TorchEngine(ABC):
             self._optimizer.zero_grad()
             loss.backward()
             if self._clip_grad_value != 0:
-                torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(), self._clip_grad_value
-                )
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self._clip_grad_value)
             self._optimizer.step()
 
     # TODO: test gsam
@@ -870,14 +886,19 @@ class TorchEngine(ABC):
             # the forward pass
             self._on_forward_pass()
 
+            # prepare predictions first (put them in the right shape)
+            prepared_pred = self._prepare_predictions(pred)
+            prepared_y_batch = self._prepare_ground_truths(y_batch)
             # Compute loss
-            loss = self._compute_loss(pred, y_batch)
+
+            loss = self._compute_loss(prepared_pred, prepared_y_batch)
 
             # Optimizer step
+            # TODO: check if this works with prepared_y_batch
             self._optimizer_step(loss, x_batch, y_batch)
 
             # Compute all metrics
-            metrics = self._compute_metrics(pred, y_batch)
+            metrics = self._compute_metrics(prepared_pred, prepared_y_batch)
 
             # Store all metrics
             for metric_name, metric_value in metrics.items():
@@ -924,9 +945,7 @@ class TorchEngine(ABC):
             all_metrics.add_val_metrics(val_metrics)
 
             # Log metrics
-            self._log_epoch_metrics(
-                epoch, train_metrics, val_metrics, t2 - t1, v2 - v1, current_lr
-            )
+            self._log_epoch_metrics(epoch, train_metrics, val_metrics, t2 - t1, v2 - v1, current_lr)
 
             # Save periodic checkpoint
             if self._should_save_epoch_model(epoch):
@@ -998,8 +1017,10 @@ class TorchEngine(ABC):
 
         preds = torch.cat(preds, dim=0)
         labels = torch.cat(labels, dim=0)
+        prepared_preds = self._prepare_predictions(preds)
+        prepared_labels = self._prepare_ground_truths(labels)
 
         if mode == "val":
-            return self._compute_validation_metrics(preds, labels)
+            return self._compute_validation_metrics(prepared_preds, prepared_labels)
         elif mode == "test":
-            return self._compute_test_metrics(preds, labels)
+            return self._compute_test_metrics(prepared_preds, prepared_labels)

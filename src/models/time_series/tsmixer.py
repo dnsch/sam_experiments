@@ -1,13 +1,11 @@
 import sys
 from pathlib import Path
 import torch
-# from torch import nn
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.append(str(SCRIPT_DIR.parents[1]))
 sys.path.append(str(SCRIPT_DIR.parents[2]))
 sys.path.append(str(SCRIPT_DIR.parents[3]))
-
 
 from src.base.model import BaseModel
 
@@ -48,7 +46,13 @@ class TSMixer(BaseModel):
         norm_type="batch",
         use_revin=False,
     ):
-        super().__init__(num_channels, input_dim, output_dim, seq_len, horizon)
+        # Only pass seq_len and horizon to BaseModel
+        super().__init__(seq_len=seq_len, horizon=horizon)
+
+        # Store additional attributes if needed
+        self.num_channels = num_channels
+        self.input_dim = input_dim
+        self.output_dim = output_dim
 
         self.tsmixer = _TSMixer(
             sequence_length=seq_len,
@@ -69,7 +73,7 @@ class TSMixer(BaseModel):
 
 
 class TSMixerExt(BaseModel):
-    """TSMixer adapter that inherits from BaseModel."""
+    """TSMixerExt adapter that inherits from BaseModel."""
 
     def __init__(
         self,
@@ -89,7 +93,13 @@ class TSMixerExt(BaseModel):
         norm_type: str = "layer",
         use_revin=False,
     ):
-        super().__init__(num_channels, input_dim, output_dim, seq_len, horizon)
+        # Only pass seq_len and horizon to BaseModel
+        super().__init__(seq_len=seq_len, horizon=horizon)
+
+        # Store additional attributes if needed
+        self.num_channels = num_channels
+        self.input_dim = input_dim
+        self.output_dim = output_dim
 
         self.tsmixer = _TSMixerExt(
             sequence_length=seq_len,
@@ -112,4 +122,4 @@ class TSMixerExt(BaseModel):
         return self.tsmixer(x_hist, flatten_output)
 
 
-__all__ = ["TSMixer"]
+__all__ = ["TSMixer", "TSMixerExt"]

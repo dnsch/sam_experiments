@@ -1,4 +1,5 @@
 from src.base.torch_engine import TorchEngine
+import torch
 
 
 class SAMFormer_Engine(TorchEngine):
@@ -34,6 +35,16 @@ class SAMFormer_Engine(TorchEngine):
         if self.plot_attention and epoch % 1 == 0:
             self._plot_attention_patterns(epoch)
 
+    # def _prepare_predictions(self, preds) -> torch.Tensor:
+    #     # Reshape to [batch, channels, horizon] for per-horizon evaluation
+    #     prepared_preds = preds.permute(0, 2, 1).contiguous()
+    #     return prepared_preds
+    #
+    # def _prepare_ground_truths(self, y_batch) -> torch.Tensor:
+    #     # Reshape to [batch, channels, horizon] for per-horizon evaluation
+    #     prepared_y_batch = y_batch.permute(0, 2, 1).contiguous()
+    #     return prepared_y_batch
+
     def _plot_attention_patterns(self, epoch):
         """Plot attention patterns for this epoch."""
         try:
@@ -48,9 +59,7 @@ class SAMFormer_Engine(TorchEngine):
             attention_mean_path.mkdir(parents=True, exist_ok=True)
             attention_var_path.mkdir(parents=True, exist_ok=True)
 
-            plot_samformer_attention_mean(
-                self._attention_patterns, epoch + 1, attention_mean_path
-            )
+            plot_samformer_attention_mean(self._attention_patterns, epoch + 1, attention_mean_path)
 
             # TODO: check this function, might remove it
             plot_samformer_attention_mean_stats(
