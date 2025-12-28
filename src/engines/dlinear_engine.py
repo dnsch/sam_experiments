@@ -12,6 +12,30 @@ class DLinear_Engine(TorchEngine):
     def __init__(self, **args):
         super().__init__(**args)
 
+    def _revin_norm(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Apply RevIN normalization.
+
+        Dlinear input shape (after _prepare_batch): [batch, seq_len, channels]
+        RevIN expects: [batch, seq_len, channels]
+        No transpose needed.
+        """
+        if not self._use_revin or self._revin is None:
+            return x
+        return self._revin(x, mode="norm")
+
+    def _revin_denorm(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Apply RevIN denormalization.
+
+        Dlinear output shape: [batch, horizon, channels]
+        RevIN expects: [batch, horizon, channels]
+        No transpose needed.
+        """
+        if not self._use_revin or self._revin is None:
+            return x
+        return self._revin(x, mode="denorm")
+
     def _prepare_batch(self, batch) -> Dict[str, torch.Tensor]:
         batch_dict = super()._prepare_batch(batch)
 

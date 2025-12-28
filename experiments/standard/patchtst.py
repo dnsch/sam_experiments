@@ -36,10 +36,6 @@ class PatchTSTExperiment(TorchStandardExperiment):
             patch_len=args.patch_len,
             stride=args.stride,
             padding_patch=args.padding_patch,
-            # RevIN parameters
-            revin=args.use_revin,
-            affine=args.revin_affine,
-            subtract_last=args.revin_subtract_last,
             # Decomposition parameters
             decomposition=args.decomposition,
             kernel_size=args.kernel_size,
@@ -64,6 +60,10 @@ class PatchTSTExperiment(TorchStandardExperiment):
             head_type=args.head_type,
             verbose=args.verbose,
         )
+
+    def get_revin_num_features(self, args):
+        """PatchTST uses enc_in for number of channels."""
+        return args.enc_in
 
 
 if __name__ == "__main__":

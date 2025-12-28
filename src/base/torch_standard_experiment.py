@@ -125,6 +125,33 @@ class TorchStandardExperiment(BaseExperiment):
         """Get metrics to track."""
         return ["mse"]
 
+    # TODO: change every argument to num_channels or let it be consistent in
+    # order to avoid this function
+    def get_revin_num_features(self, args: argparse.Namespace) -> Optional[int]:
+        """
+        Get the number of features for RevIN.
+
+        Override in subclasses to return the appropriate number of channels/features.
+        Common options:
+            - args.num_channels (SAMFormer, TSMixer)
+            - args.enc_in (Transformers, PatchTST, DLinear)
+
+        If None is returned, the engine will try to get it from model.num_channels.
+
+        Args:
+            args: Parsed arguments
+
+        Returns:
+            Number of features for RevIN, or None to auto-detect from model
+        """
+        # Try common argument names in order of preference
+        if hasattr(args, "num_channels"):
+            return args.num_channels
+        if hasattr(args, "enc_in"):
+            return args.enc_in
+        # Return None to let engine auto-detect from model
+        return None
+
     def get_engine_kwargs(
         self,
         args: argparse.Namespace,
@@ -146,6 +173,12 @@ class TorchStandardExperiment(BaseExperiment):
             "loss_fn": loss_fn,
             "lrate": args.lrate,
             "optimizer": optimizer,
+            # RevIN parameters
+            "use_revin": getattr(args, "use_revin", False),
+            "revin_affine": getattr(args, "revin_affine", False),
+            "revin_num_features": self.get_revin_num_features(args),
+            "revin_subtract_last": getattr(args, "revin_subtract_last", False),
+            # Sharpness Aware Minimization
             "sam": getattr(args, "sam", False),
             "gsam": getattr(args, "gsam", False),
             "scheduler": scheduler,

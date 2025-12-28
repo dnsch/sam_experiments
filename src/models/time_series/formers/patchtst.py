@@ -23,10 +23,6 @@ class PatchTST(BaseModel):
         patch_len: int,
         stride: int,
         padding_patch: bool,
-        # RevIN parameters
-        revin: bool,
-        affine: bool,
-        subtract_last: bool,
         # Decomposition parameters
         decomposition: bool,
         kernel_size: int,
@@ -55,6 +51,7 @@ class PatchTST(BaseModel):
         super().__init__()
 
         # Store parameters
+        self.num_channels = enc_in  # For engine to access for RevIN init
         c_in = enc_in
         context_window = seq_len
         target_window = pred_len
@@ -94,9 +91,9 @@ class PatchTST(BaseModel):
                 pretrain_head=pretrain_head,
                 head_type=head_type,
                 individual=individual,
-                revin=revin,
-                affine=affine,
-                subtract_last=subtract_last,
+                # revin=revin,
+                # affine=affine,
+                # subtract_last=subtract_last,
                 verbose=verbose,
                 **kwargs,
             )
@@ -131,9 +128,9 @@ class PatchTST(BaseModel):
                 pretrain_head=pretrain_head,
                 head_type=head_type,
                 individual=individual,
-                revin=revin,
-                affine=affine,
-                subtract_last=subtract_last,
+                # revin=revin,
+                # affine=affine,
+                # subtract_last=subtract_last,
                 verbose=verbose,
                 **kwargs,
             )
@@ -169,9 +166,9 @@ class PatchTST(BaseModel):
                 pretrain_head=pretrain_head,
                 head_type=head_type,
                 individual=individual,
-                revin=revin,
-                affine=affine,
-                subtract_last=subtract_last,
+                # revin=revin,
+                # affine=affine,
+                # subtract_last=subtract_last,
                 verbose=verbose,
                 **kwargs,
             )

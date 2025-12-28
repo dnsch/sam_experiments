@@ -46,11 +46,6 @@ class TorchEngine(ABC):
         loss_fn,
         lrate,
         optimizer,
-        # RevIN parameters
-        use_revin,
-        revin_affine,
-        revin_num_features,
-        revin_subtract_last,
         sam,
         gsam,
         scheduler,
@@ -72,29 +67,6 @@ class TorchEngine(ABC):
         self._loss_fn = loss_fn
         self._lrate = lrate
         self._optimizer = optimizer
-        # RevIN parameters
-        self._use_revin = use_revin
-        self._revin = None
-        if self._use_revin:
-            from src.utils.revin import RevIN
-
-            # TODO: num_channels is always provided I think
-            # Try to get num_features from model if not provided
-            num_features = revin_num_features
-            if num_features is None:
-                num_features = getattr(model, "num_channels", None)
-            if num_features is None:
-                raise ValueError(
-                    "revin_num_features required when use_revin=True. "
-                    "Provide it explicitly or ensure model has 'num_channels' attribute."
-                )
-
-            # self._revin = RevIN(num_features=num_features, affine=revin_affine).to(self._device)
-            #
-            self._revin = RevIN(
-                num_features=num_features, affine=revin_affine, subtract_last=revin_subtract_last
-            ).to(self._device)
-            # self._logger.info(f"RevIN enabled with {num_features} features, affine={revin_affine}")
         # Sharpness Aware Minimization
         self._sam = sam
         self._gsam = gsam
@@ -695,47 +667,6 @@ class TorchEngine(ABC):
         out_batch = self.model(x_batch, False)
         return out_batch
 
-    def _revin_norm(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Apply RevIN normalization to input tensor.
-
-        Override this method in subclasses if your model requires
-        different transpose/permutation logic.
-
-        Default assumes input shape: [batch, channels, seq_len]
-        RevIN expects: [batch, seq_len, channels]
-
-        Args:
-            x: Input tensor of shape [batch, channels, seq_len]
-
-        Returns:
-            Normalized tensor of same shape
-        """
-        if not self._use_revin or self._revin is None:
-            return x
-        # Transpose: [B, C, L] -> [B, L, C] for RevIN, then back
-        return self._revin(x.transpose(1, 2), mode="norm").transpose(1, 2)
-
-    def _revin_denorm(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Apply RevIN denormalization to output tensor.
-
-        Override this method in subclasses if your model requires
-        different transpose/permutation logic.
-
-        Default assumes output shape: [batch, channels, horizon]
-        RevIN expects: [batch, horizon, channels]
-
-        Args:
-            x: Output tensor of shape [batch, channels, horizon]
-
-        Returns:
-            Denormalized tensor of same shape
-        """
-        if not self._use_revin or self._revin is None:
-            return x
-        return self._revin(x.transpose(1, 2), mode="denorm").transpose(1, 2)
-
     def _optimizer_step(self, loss: torch.Tensor, x_batch, y_batch):
         # TODO: change the var names s.t. they're consistent with the ones in the
         # batch loop
@@ -754,11 +685,8 @@ class TorchEngine(ABC):
             loss.backward()
             self._optimizer.first_step(zero_grad=True)
 
-            # Second forward pass for SAM - apply RevIN again
-            x_batch_norm = self._revin_norm(x_batch)
             # TODO: maybe remove flatten output
-            out_batch = self.model(x_batch_norm, False)
-            out_batch = self._revin_denorm(out_batch)
+            out_batch = self.model(x_batch, False)
 
             loss = self._compute_loss(out_batch, y_batch)
 
@@ -768,12 +696,9 @@ class TorchEngine(ABC):
             self._optimizer.second_step(zero_grad=True)
 
         elif self._gsam:
-            # GSAM optimizer - needs custom closure with RevIN
+            # GSAM optimizer
             loss.backward()
-            # self._optimizer.set_closure(self._loss_fn, x_batch, y_batch)
-            self._optimizer.set_closure(
-                self._loss_fn, x_batch, y_batch, self._revin_closure_wrapper
-            )
+            self._optimizer.set_closure(self._loss_fn, x_batch, y_batch)
             out_batch, loss = self._optimizer.step()
             self._lr_scheduler.step()
             self._optimizer.update_rho_t()
@@ -784,13 +709,6 @@ class TorchEngine(ABC):
             if self._clip_grad_value != 0:
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self._clip_grad_value)
             self._optimizer.step()
-
-    # TODO: check if this works
-    def _revin_closure_wrapper(self, x_batch):
-        """Wrapper for GSAM closure that applies RevIN."""
-        x_norm = self._revin_norm(x_batch)
-        out = self.model(x_norm, False)
-        return self._revin_denorm(out)
 
     # TODO: test gsam
     def _get_current_lr(self) -> float:
@@ -960,19 +878,13 @@ class TorchEngine(ABC):
             x_batch = batch_dict["x"]
             y_batch = batch_dict["y"]
 
-            # RevIN Normalization
-            x_batch_norm = self._revin_norm(x_batch)
-
             # Forward pass
-            pred = self._forward_pass(x_batch_norm).contiguous()
+            pred = self._forward_pass(x_batch).contiguous()
 
             # Hook that allows to capture model internals
             # in our case, we use it to capture the attention patterns after
             # the forward pass
             self._on_forward_pass()
-
-            # RevIN Denormalization
-            pred = self._revin_denorm(pred)
 
             # prepare predictions first (put them in the right shape)
             prepared_pred = self._prepare_predictions(pred)
@@ -1098,13 +1010,7 @@ class TorchEngine(ABC):
                 x_batch = batch_dict["x"]
                 y_batch = batch_dict["y"]
 
-                # RevIN Normalization
-                x_batch_norm = self._revin_norm(x_batch)
-
-                pred = self._forward_pass(x_batch_norm)
-
-                # RevIN Denormalization
-                pred = self._revin_denorm(pred)
+                pred = self._forward_pass(x_batch)
 
                 preds.append(pred.squeeze(-1).cpu())
                 labels.append(y_batch.squeeze(-1).cpu())

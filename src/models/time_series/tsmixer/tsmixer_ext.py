@@ -5,7 +5,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from src.base.model import BaseModel
-from src.utils.revin import RevIN
 
 from .layers import (
     ConditionalFeatureMixing,
@@ -35,7 +34,6 @@ class TSMixerExt(BaseModel):
         dropout_rate: Dropout rate used in the mixer layers.
         normalize_before: Whether to apply normalization before mixer layer.
         norm_type: Type of normalization to use. "batch" or "layer".
-        use_revin: Whether to use RevIN normalization.
     """
 
     def __init__(
@@ -52,14 +50,12 @@ class TSMixerExt(BaseModel):
         dropout_rate: float = 0.1,
         normalize_before: bool = False,
         norm_type: str = "layer",
-        use_revin: bool = False,
         **kwargs,
     ):
         assert static_channels > 0, "static_channels must be greater than 0"
         super().__init__(seq_len=seq_len, horizon=horizon)
 
         self.num_channels = num_channels
-        self.use_revin = use_revin
 
         # Transform activation_fn to callable
         activation_fn_callable = getattr(F, activation_fn)
@@ -111,9 +107,6 @@ class TSMixerExt(BaseModel):
             norm_type=norm_type_cls,
         )
 
-        # RevIN normalization
-        self.revin = RevIN(num_features=num_channels)
-
         # Initialize weights
         self._init_weights()
 
@@ -154,9 +147,7 @@ class TSMixerExt(BaseModel):
         Returns:
             Output tensor (batch_size, horizon, num_channels) or flattened.
         """
-        # RevIN Normalization
-        if self.use_revin:
-            x_hist = self.revin(x_hist, mode="norm")
+        # Note: If use_revin, then x is already revin normalized
 
         # Concatenate historical data with extra historical features
         x_hist = torch.cat([x_hist, x_extra_hist], dim=-1)
@@ -175,11 +166,6 @@ class TSMixerExt(BaseModel):
 
         # Output projection
         x = self.fc_out(x)
-
-        # RevIN Denormalization
-        if self.use_revin:
-            # x = self.revin(x, mode="denorm").transpose(1, 2)
-            x = self.revin(x, mode="denorm")
 
         # Flatten output if requested
         if flatten_output:

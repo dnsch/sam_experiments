@@ -56,7 +56,6 @@ class TSMixerExtExperiment(TorchStandardExperiment):
                 "pred_len": args.horizon,
                 "extra_channels": extra_channels,
                 "static_channels": static_channels,
-                "use_revin": getattr(args, "use_revin", False),
             }
         )
         return kwargs
@@ -81,7 +80,6 @@ class TSMixerExtExperiment(TorchStandardExperiment):
             ff_dim=args.ff_dim,
             normalize_before=args.normalize_before,
             norm_type=args.norm_type,
-            use_revin=args.use_revin,
         )
 
 

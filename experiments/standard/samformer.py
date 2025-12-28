@@ -50,7 +50,6 @@ class SAMFormerExperiment(TorchStandardExperiment):
             seq_len=args.seq_len,
             hid_dim=args.hid_dim,
             horizon=args.horizon,
-            revin=args.use_revin,
             plot_attention=getattr(args, "plot_attention", True),
         )
 

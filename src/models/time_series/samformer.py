@@ -16,8 +16,6 @@ class SAMFormer(BaseModel):
         seq_len=512,
         hid_dim=16,
         horizon=720,
-        revin=True,
-        revin_affine=False,
         plot_attention=False,
         **args,
     ):
@@ -33,8 +31,9 @@ class SAMFormer(BaseModel):
 
         # Initialize weights to match SAMFormer init
         self._init_weights()
-        self.revin = revin
-        self.RevIN = RevIN(num_features=num_channels, affine=revin_affine)
+
+        # Store num_channels for revin
+        self.num_channels = num_channels
         self.plot_attention = plot_attention
         self.attention_pattern = None
 
@@ -54,18 +53,11 @@ class SAMFormer(BaseModel):
                     nn.init.zeros_(module.bias)
 
     def forward(self, x, flatten_output=True):
-        # RevIN Normalization
-
-        if self.revin:
-            x_norm = self.RevIN(x.transpose(1, 2), mode="norm").transpose(
-                1, 2
-            )  # (n, D, L)
-        else:
-            x_norm = x
+        # Note: If use_revin, then x is already revin normalized
         # Channel-Wise Attention
-        queries = self.compute_queries(x_norm)  # (n, D, hid_dim)
-        keys = self.compute_keys(x_norm)  # (n, D, hid_dim)
-        values = self.compute_values(x_norm)  # (n, D, L)
+        queries = self.compute_queries(x)  # (n, D, hid_dim)
+        keys = self.compute_keys(x)  # (n, D, hid_dim)
+        values = self.compute_values(x)  # (n, D, L)
 
         # Save attention_patterns
         if self.plot_attention:
@@ -81,14 +73,9 @@ class SAMFormer(BaseModel):
         att_score = self.output_layer(att_score)
 
         self.attention_pattern = attention_pattern
-        out = x_norm + att_score  # (n, D, L)
+        out = x + att_score  # (n, D, L)
         # Linear Forecasting
         out = self.linear_forecaster(out)  # (n, D, H)
-        # RevIN Denormalization
-        if self.revin:
-            out = self.RevIN(out.transpose(1, 2), mode="denorm").transpose(
-                1, 2
-            )  # (n, D, H)
         if flatten_output:
             return out.reshape([out.shape[0], out.shape[1] * out.shape[2]])
         else:

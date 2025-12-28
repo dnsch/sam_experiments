@@ -61,7 +61,6 @@ class TSMixerExperiment(TorchStandardExperiment):
             ff_dim=args.ff_dim,
             normalize_before=args.normalize_before,
             norm_type=args.norm_type,
-            use_revin=args.use_revin,
         )
 
 

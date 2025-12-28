@@ -5,7 +5,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from src.base.model import BaseModel
-from src.utils.revin import RevIN
 
 from .layers import MixerLayer, TimeBatchNorm2d, feature_to_time, time_to_feature
 
@@ -28,7 +27,6 @@ class TSMixer(BaseModel):
         ff_dim: Dimension of feedforward network inside mixer layer. Defaults to 64.
         normalize_before: Whether to apply layer normalization before or after mixer layer.
         norm_type: Type of normalization to use. "batch" or "layer". Defaults to "batch".
-        use_revin: Whether to use RevIN normalization. Defaults to False.
     """
 
     def __init__(
@@ -43,14 +41,12 @@ class TSMixer(BaseModel):
         ff_dim: int = 64,
         normalize_before: bool = True,
         norm_type: str = "batch",
-        use_revin: bool = False,
         **kwargs,
     ):
         super().__init__(seq_len=seq_len, horizon=horizon)
 
         self.num_channels = num_channels
         self.output_channels = output_channels if output_channels is not None else num_channels
-        self.use_revin = use_revin
 
         # Transform activation_fn to callable
         activation_fn_callable = getattr(F, activation_fn)
@@ -77,9 +73,6 @@ class TSMixer(BaseModel):
 
         # Temporal projection layer
         self.temporal_projection = nn.Linear(seq_len, horizon)
-
-        # RevIN normalization
-        self.revin = RevIN(num_features=num_channels)
 
         # Initialize weights
         self._init_weights()
@@ -115,23 +108,15 @@ class TSMixer(BaseModel):
         Returns:
             Output tensor (batch_size, horizon, output_channels) or flattened.
         """
-        # RevIN Normalization
-        if self.use_revin:
-            x_norm = self.revin(x_hist, mode="norm")
-        else:
-            x_norm = x_hist
 
+        # Note: If use_revin, then x_hist is already revin normalized
         # Mixer layers
-        x = self.mixer_layers(x_norm)
+        x = self.mixer_layers(x_hist)
 
         # Temporal projection
         x_temp = feature_to_time(x)
         x_temp = self.temporal_projection(x_temp)
         x = time_to_feature(x_temp)
-
-        # RevIN Denormalization
-        if self.use_revin:
-            x = self.revin(x, mode="denorm")
 
         # Flatten output if requested
         if flatten_output:
