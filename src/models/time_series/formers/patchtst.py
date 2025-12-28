@@ -1,23 +1,8 @@
-__all__ = ["PatchTST"]
-
-from typing import Callable, Optional
-import torch
-from torch import nn
 from torch import Tensor
-import torch.nn.functional as F
-import numpy as np
 
-import sys
-from pathlib import Path
-
-SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.append(str(SCRIPT_DIR.parents[0]))
-import pdb
-
-# pdb.set_trace()
 from src.base.model import BaseModel
-from formers.layers.PatchTST_backbone import PatchTST_backbone
-from formers.layers.PatchTST_layers import series_decomp
+from src.models.time_series.formers.layers.PatchTST_backbone import PatchTST_backbone
+from src.models.time_series.formers.layers.PatchTST_layers import series_decomp
 
 
 class PatchTST(BaseModel):
@@ -48,17 +33,15 @@ class PatchTST(BaseModel):
         # Individual parameter
         individual: bool,
         # Additional parameters
-        max_seq_len: Optional[int] = 1024,  # legacy, unused, but kept for compatibility
-        d_k: Optional[int] = None,
-        d_v: Optional[int] = None,
+        max_seq_len: int = 1024,  # legacy, unused, but kept for compatibility
+        d_k: int = None,
+        d_v: int = None,
         norm: str = "BatchNorm",  # legacy, unused, but kept for compatibility, TODO: extend that param and allow for layer norm
         attn_dropout: float = 0.0,
         act: str = "gelu",
         key_padding_mask: bool = "auto",  # legacy, unused, but kept for compatibility
-        padding_var: Optional[int] = None,  # legacy, unused, but kept for compatibility
-        attn_mask: Optional[
-            Tensor
-        ] = None,  # legacy, unused, but kept for compatibility
+        padding_var: int = None,  # legacy, unused, but kept for compatibility
+        attn_mask: Tensor = None,  # legacy, unused, but kept for compatibility
         res_attention: bool = True,
         pre_norm: bool = False,
         store_attn: bool = False,

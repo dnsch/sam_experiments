@@ -1,21 +1,18 @@
 import torch
 import torch.nn as nn
 
-import sys
-from pathlib import Path
-
-SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.append(str(SCRIPT_DIR.parents[0]))
-
 from src.base.model import BaseModel
-from formers.layers.Embed import (
+from src.models.time_series.formers.layers.Embed import (
     DataEmbedding,
     DataEmbedding_wo_pos,
     DataEmbedding_wo_pos_temp,
     DataEmbedding_wo_temp,
 )
-from formers.layers.AutoCorrelation import AutoCorrelation, AutoCorrelationLayer
-from formers.layers.Autoformer_EncDec import (
+from src.models.time_series.formers.layers.AutoCorrelation import (
+    AutoCorrelation,
+    AutoCorrelationLayer,
+)
+from src.models.time_series.formers.layers.Autoformer_EncDec import (
     Encoder,
     Decoder,
     EncoderLayer,
@@ -228,16 +225,12 @@ class Autoformer(BaseModel):
     ):
         # decomp init
         mean = torch.mean(x_enc, dim=1).unsqueeze(1).repeat(1, self.pred_len, 1)
-        zeros = torch.zeros(
-            [x_dec.shape[0], self.pred_len, x_dec.shape[2]], device=x_enc.device
-        )
+        zeros = torch.zeros([x_dec.shape[0], self.pred_len, x_dec.shape[2]], device=x_enc.device)
         seasonal_init, trend_init = self.decomp(x_enc)
 
         # decoder input
         trend_init = torch.cat([trend_init[:, -self.label_len :, :], mean], dim=1)
-        seasonal_init = torch.cat(
-            [seasonal_init[:, -self.label_len :, :], zeros], dim=1
-        )
+        seasonal_init = torch.cat([seasonal_init[:, -self.label_len :, :], zeros], dim=1)
 
         # enc
         enc_out = self.enc_embedding(x_enc, x_mark_enc)
