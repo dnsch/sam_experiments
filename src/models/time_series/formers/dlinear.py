@@ -54,10 +54,8 @@ class DLinear(BaseModel):
         kernel_size: int = 25,
         **kwargs,
     ):
-        super().__init__(seq_len=seq_len, horizon=pred_len)
+        super().__init__(seq_len=seq_len, pred_len=pred_len)
 
-        self.seq_len = seq_len
-        self.pred_len = pred_len
         self.channels = enc_in
         self.individual = individual
 

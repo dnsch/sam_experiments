@@ -20,13 +20,12 @@ from typing import Optional, Iterator, Tuple, Dict, List
 # Statsforecast Dataloader
 
 # from code.src.utils.paths import get_samformer_dataset_path
-
 from src.utils.model_utils import statsforecast_to_tensor
 
-from src.models.time_series.formers.utils.timefeatures import (
-    time_features,
-    time_features_from_frequency_str,
-)
+# For pandas offset parsing (matching original Autoformer)
+
+from pandas.tseries import offsets
+from pandas.tseries.frequencies import to_offset
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 from src.utils.paths import get_samformer_dataset_path
@@ -72,6 +71,143 @@ class LabeledDataset(Dataset):
             return examples, labels, x_time_features, y_time_features
         else:
             return examples, labels
+
+
+# Time Features
+
+# Based on: https://github.com/thuml/Autoformer/blob/main/utils/timefeatures.py
+
+# needed for autoformer
+
+
+class TimeFeature:
+    """Base class for time features."""
+
+    def __init__(self):
+        pass
+
+    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
+        pass
+
+    def __repr__(self):
+        return self.__class__.__name__ + "()"
+
+
+class SecondOfMinute(TimeFeature):
+    """Second of minute encoded as value between [-0.5, 0.5]"""
+
+    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
+        return index.second / 59.0 - 0.5
+
+
+class MinuteOfHour(TimeFeature):
+    """Minute of hour encoded as value between [-0.5, 0.5]"""
+
+    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
+        return index.minute / 59.0 - 0.5
+
+
+class HourOfDay(TimeFeature):
+    """Hour of day encoded as value between [-0.5, 0.5]"""
+
+    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
+        return index.hour / 23.0 - 0.5
+
+
+class DayOfWeek(TimeFeature):
+    """Day of week encoded as value between [-0.5, 0.5]"""
+
+    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
+        return index.dayofweek / 6.0 - 0.5
+
+
+class DayOfMonth(TimeFeature):
+    """Day of month encoded as value between [-0.5, 0.5]"""
+
+    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
+        return (index.day - 1) / 30.0 - 0.5
+
+
+class DayOfYear(TimeFeature):
+    """Day of year encoded as value between [-0.5, 0.5]"""
+
+    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
+        return (index.dayofyear - 1) / 365.0 - 0.5
+
+
+class MonthOfYear(TimeFeature):
+    """Month of year encoded as value between [-0.5, 0.5]"""
+
+    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
+        return (index.month - 1) / 11.0 - 0.5
+
+
+class WeekOfYear(TimeFeature):
+    """Week of year encoded as value between [-0.5, 0.5]"""
+
+    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
+        return (index.isocalendar().week - 1) / 52.0 - 0.5  # Note: 52.0 to match original
+
+
+def time_features_from_frequency_str(freq_str: str) -> List[TimeFeature]:
+    """
+    Returns a list of time features that will be appropriate for the given frequency string.
+    Parameters
+    ----------
+    freq_str
+        Frequency string of the form [multiple][granularity] such as "12H", "5min", "1D" etc.
+    """
+
+    features_by_offsets = {
+        offsets.YearEnd: [],
+        offsets.QuarterEnd: [MonthOfYear],
+        offsets.MonthEnd: [MonthOfYear],
+        offsets.Week: [DayOfMonth, WeekOfYear],
+        offsets.Day: [DayOfWeek, DayOfMonth, DayOfYear],
+        offsets.BusinessDay: [DayOfWeek, DayOfMonth, DayOfYear],
+        offsets.Hour: [HourOfDay, DayOfWeek, DayOfMonth, DayOfYear],
+        offsets.Minute: [
+            MinuteOfHour,
+            HourOfDay,
+            DayOfWeek,
+            DayOfMonth,
+            DayOfYear,
+        ],
+        offsets.Second: [
+            SecondOfMinute,
+            MinuteOfHour,
+            HourOfDay,
+            DayOfWeek,
+            DayOfMonth,
+            DayOfYear,
+        ],
+    }
+
+    offset = to_offset(freq_str)
+
+    for offset_type, feature_classes in features_by_offsets.items():
+        if isinstance(offset, offset_type):
+            return [cls() for cls in feature_classes]
+
+    supported_freq_msg = f"""
+    Unsupported frequency {freq_str}
+    The following frequencies are supported:
+        Y   - yearly
+            alias: A
+        M   - monthly
+        W   - weekly
+        D   - daily
+        B   - business days
+        H   - hourly
+        T   - minutely
+            alias: min
+        S   - secondly
+    """
+    raise RuntimeError(supported_freq_msg)
+
+
+def time_features(dates, freq="h"):
+    return np.vstack([feat(dates) for feat in time_features_from_frequency_str(freq)])
 
 
 def extract_time_features_raw(dates: pd.DatetimeIndex, freq: str = "h") -> np.ndarray:
@@ -130,14 +266,7 @@ def extract_time_features(dates: pd.DatetimeIndex, freq: str = "h", timeenc: int
         return time_features(dates, freq).transpose(1, 0)
 
 
-def construct_sliding_window_data(
-    data,
-    seq_len,
-    pred_len,
-    time_increment=1,
-    time_features_arr=None,
-    label_len=0,
-):
+def construct_sliding_window_data(data, seq_len, pred_len, time_increment=1, time_features=None):
     """
     Construct sliding window data with optional time features.
 
@@ -146,54 +275,35 @@ def construct_sliding_window_data(
         seq_len: Input sequence length
         pred_len: Prediction length
         time_increment: Step size for sliding window
-        time_features_arr: Optional time features array (same length as data)
-        label_len: Decoder start token length (for Informer-style models)
+        time_features: Optional time features array (same length as data)
 
     Returns:
-        If label_len > 0: x, y includes label_len overlap
-        If time_features_arr is None: (x, y)
-        If time_features_arr is provided: (x, y, x_mark, y_mark)
+        If time_features is None: (x, y)
+        If time_features is provided: (x, y, x_mark, y_mark)
     """
     n_samples = data.shape[0] - (seq_len - 1) - pred_len
     range_ = np.arange(0, n_samples, time_increment)
     x, y = list(), list()
 
-    if time_features_arr is not None:
+    if time_features is not None:
         x_mark, y_mark = list(), list()
 
         for i in range_:
             x.append(data[i : (i + seq_len)].T)
-
-            # y includes label_len overlap + pred_len future
-            if label_len > 0:
-                y_start = i + seq_len - label_len
-                y_end = i + seq_len + pred_len
-                y.append(data[y_start:y_end].T)
-                y_mark.append(time_features_arr[y_start:y_end])
-            else:
-                y.append(data[(i + seq_len) : (i + seq_len + pred_len)].T)
-                y_mark.append(time_features_arr[(i + seq_len) : (i + seq_len + pred_len)])
-
-            x_mark.append(time_features_arr[i : (i + seq_len)])
+            y.append(data[(i + seq_len) : (i + seq_len + pred_len)].T)
+            x_mark.append(time_features[i : (i + seq_len)])
+            y_mark.append(time_features[(i + seq_len) : (i + seq_len + pred_len)])
 
         return np.array(x), np.array(y), np.array(x_mark), np.array(y_mark)
     else:
         for i in range_:
             x.append(data[i : (i + seq_len)].T)
-
-            if label_len > 0:
-                y_start = i + seq_len - label_len
-                y_end = i + seq_len + pred_len
-                y.append(data[y_start:y_end].T)
-            else:
-                y.append(data[(i + seq_len) : (i + seq_len + pred_len)].T)
+            y.append(data[(i + seq_len) : (i + seq_len + pred_len)].T)
 
         return np.array(x), np.array(y)
 
 
 # Extra data handling needed for TSMixerExt
-
-
 class TSMixerExtDataset(Dataset):
     """
     Dataset for TSMixerExt that provides all required inputs:
@@ -285,7 +395,6 @@ class SamformerDataloader:
         freq="h",  # New parameter for frequency
         timeenc=1,  # New parameter: 0=raw integers, 1=normalized (matches Autoformer)
         embed="timeF",  # New parameter: timeF uses timeenc=1, others use timeenc=0
-        label_len=0,  # New parameter for decoder start token length (Informer-style models)
         # New parameters for TSMixerExt
         model_type="standard",  # "standard" or "tsmixer_ext"
         num_static_features=1,  # Number of static features for TSMixerExt
@@ -314,8 +423,6 @@ class SamformerDataloader:
         # Allow explicit override
         if timeenc is not None and embed == "timeF":
             self.timeenc = timeenc
-        # Label length for decoder start token (Informer-style models)
-        self.label_len = label_len
 
         # TSMixerExt init
         self.model_type = model_type
@@ -405,7 +512,6 @@ class SamformerDataloader:
                         self.pred_len,
                         self.time_increment,
                         train_time,
-                        label_len=self.label_len,
                     )
                     x_val, y_val, x_val_mark, y_val_mark = construct_sliding_window_data(
                         val_arr,
@@ -413,7 +519,6 @@ class SamformerDataloader:
                         self.pred_len,
                         self.time_increment,
                         val_time,
-                        label_len=self.label_len,
                     )
                     x_test, y_test, x_test_mark, y_test_mark = construct_sliding_window_data(
                         test_arr,
@@ -421,29 +526,16 @@ class SamformerDataloader:
                         self.pred_len,
                         self.time_increment,
                         test_time,
-                        label_len=self.label_len,
                     )
                 else:
                     x_train, y_train = construct_sliding_window_data(
-                        train_arr,
-                        self.seq_len,
-                        self.pred_len,
-                        self.time_increment,
-                        label_len=self.label_len,
+                        train_arr, self.seq_len, self.pred_len, self.time_increment
                     )
                     x_val, y_val = construct_sliding_window_data(
-                        val_arr,
-                        self.seq_len,
-                        self.pred_len,
-                        self.time_increment,
-                        label_len=self.label_len,
+                        val_arr, self.seq_len, self.pred_len, self.time_increment
                     )
                     x_test, y_test = construct_sliding_window_data(
-                        test_arr,
-                        self.seq_len,
-                        self.pred_len,
-                        self.time_increment,
-                        label_len=self.label_len,
+                        test_arr, self.seq_len, self.pred_len, self.time_increment
                     )
                     x_train_mark = y_train_mark = None
                     x_val_mark = y_val_mark = None
@@ -530,7 +622,6 @@ class SamformerDataloader:
                     self.pred_len,
                     self.time_increment,
                     train_time,
-                    label_len=self.label_len,
                 )
                 x_val, y_val, x_val_mark, y_val_mark = construct_sliding_window_data(
                     self.val_arr,
@@ -538,7 +629,6 @@ class SamformerDataloader:
                     self.pred_len,
                     self.time_increment,
                     val_time,
-                    label_len=self.label_len,
                 )
                 x_test, y_test, x_test_mark, y_test_mark = construct_sliding_window_data(
                     self.test_arr,
@@ -546,29 +636,16 @@ class SamformerDataloader:
                     self.pred_len,
                     self.time_increment,
                     test_time,
-                    label_len=self.label_len,
                 )
             else:
                 x_train, y_train = construct_sliding_window_data(
-                    self.train_arr,
-                    self.seq_len,
-                    self.pred_len,
-                    self.time_increment,
-                    label_len=self.label_len,
+                    self.train_arr, self.seq_len, self.pred_len, self.time_increment
                 )
                 x_val, y_val = construct_sliding_window_data(
-                    self.val_arr,
-                    self.seq_len,
-                    self.pred_len,
-                    self.time_increment,
-                    label_len=self.label_len,
+                    self.val_arr, self.seq_len, self.pred_len, self.time_increment
                 )
                 x_test, y_test = construct_sliding_window_data(
-                    self.test_arr,
-                    self.seq_len,
-                    self.pred_len,
-                    self.time_increment,
-                    label_len=self.label_len,
+                    self.test_arr, self.seq_len, self.pred_len, self.time_increment
                 )
                 x_train_mark = y_train_mark = None
                 x_val_mark = y_val_mark = None
@@ -651,20 +728,11 @@ class SamformerDataloader:
         # Rebuild x/y with the chosen stride from scaled test segment
         if self.use_time_features:
             x_test_sw, y_test_sw, x_test_mark, y_test_mark = construct_sliding_window_data(
-                self.test_arr,
-                self.seq_len,
-                self.pred_len,
-                stride,
-                test_time,
-                label_len=self.label_len,
+                self.test_arr, self.seq_len, self.pred_len, stride, test_time
             )
         else:
             x_test_sw, y_test_sw = construct_sliding_window_data(
-                self.test_arr,
-                self.seq_len,
-                self.pred_len,
-                stride,
-                label_len=self.label_len,
+                self.test_arr, self.seq_len, self.pred_len, stride
             )
             x_test_mark = y_test_mark = None
 
@@ -692,12 +760,7 @@ class SamformerDataloader:
 
         if self.use_time_features:
             x, y, x_mark, y_mark = construct_sliding_window_data(
-                self.test_arr,
-                self.seq_len,
-                self.pred_len,
-                step,
-                test_time,
-                label_len=self.label_len,
+                self.test_arr, self.seq_len, self.pred_len, step, test_time
             )
             for i in range(x.shape[0]):
                 yield (
@@ -707,13 +770,7 @@ class SamformerDataloader:
                     torch.FloatTensor(y_mark[i]),
                 )
         else:
-            x, y = construct_sliding_window_data(
-                self.test_arr,
-                self.seq_len,
-                self.pred_len,
-                step,
-                label_len=self.label_len,
-            )
+            x, y = construct_sliding_window_data(self.test_arr, self.seq_len, self.pred_len, step)
             for i in range(x.shape[0]):
                 yield torch.FloatTensor(x[i]), torch.FloatTensor(y[i])
 
@@ -840,9 +897,9 @@ class CIFAR10Dataloader:
             test_loader = torch.load(testloader_path)
             return train_loader, test_loader
 
-        assert (
-            split_idx < data_split
-        ), "the index of data partition should be smaller than the total number of split"
+        assert split_idx < data_split, (
+            "the index of data partition should be smaller than the total number of split"
+        )
 
         normalize = transforms.Normalize(
             mean=[x / 255.0 for x in [125.3, 123.0, 113.9]],

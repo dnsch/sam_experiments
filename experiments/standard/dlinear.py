@@ -22,7 +22,7 @@ class DLinearStandardExperiment(TorchStandardExperiment):
     def create_model(self, args, dataloader):
         return DLinear(
             seq_len=args.seq_len,
-            pred_len=args.horizon,
+            pred_len=args.pred_len,
             enc_in=args.enc_in,
             individual=args.individual,
             kernel_size=args.kernel_size,

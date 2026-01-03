@@ -34,7 +34,7 @@ class NixtlaSequentialComparison(BaseExperiment):
         return (
             args.model_name,
             args.dataset,
-            f"seq_len_{args.seq_len}_pred_len_{args.horizon}",
+            f"seq_len_{args.seq_len}_pred_len_{args.pred_len}",
         )
 
     # =========================================================================
@@ -72,7 +72,7 @@ class NixtlaSequentialComparison(BaseExperiment):
             "model": sf,
             "dataloader": data,
             "scaler": None,
-            "pred_len": args.horizon,
+            "pred_len": args.pred_len,
             "loss_fn": get_loss_function(args.loss_name),
             "backend": "statsforecast",
             "num_channels": data[0]["unique_id"].nunique(),

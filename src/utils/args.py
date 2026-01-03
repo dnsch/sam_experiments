@@ -199,7 +199,7 @@ def _add_time_series_forecast_args(parser):
             help="input sequence length (history length)",
         )
         exp_group.add_argument(
-            "--horizon",
+            "--pred_len",
             type=int,
             default=96,
             metavar="N",
@@ -796,6 +796,7 @@ def _add_formers_specific_args(parser):
         help="start token length for decoder",
     )
 
+    # TODO: do we need this?
     # Embedding
     formers_specific_group.add_argument(
         "--embed_type",
@@ -822,6 +823,16 @@ def _add_formers_specific_args(parser):
         help="frequency for time features encoding: s=secondly, t=minutely, h=hourly, d=daily, b=business days, w=weekly, m=monthly",
     )
 
+    # Time features flag
+    formers_specific_group.add_argument(
+        "--use_time_features",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=True,
+        help="use time features encoding for Transformer models",
+    )
+
     # TODO: maybe move to dataloader, maybe we already have a similar arg
     # Model-specific parameters
     formers_specific_group.add_argument(
@@ -834,9 +845,17 @@ def _add_formers_specific_args(parser):
     formers_specific_group.add_argument(
         "--factor",
         type=int,
-        default=1,
+        default=5,
         metavar="N",
         help="attention factor (for Informer ProbSparse attention)",
+    )
+    formers_specific_group.add_argument(
+        "--attn",
+        type=str,
+        default="prob",
+        choices=["prob", "full"],
+        metavar="TYPE",
+        help="attention type: prob (ProbSparse) or full (for Informer)",
     )
     formers_specific_group.add_argument(
         "--distil",
@@ -845,6 +864,14 @@ def _add_formers_specific_args(parser):
         const=True,
         default=True,
         help="whether to use distilling in encoder (for Informer)",
+    )
+    formers_specific_group.add_argument(
+        "--mix",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=True,
+        help="whether to use mix attention in decoder (for Informer)",
     )
     # TODO: merge with existing "plot_attention" functionality that already has
     # a logic to save attention weights
@@ -1583,7 +1610,7 @@ def get_tsmixer_ext_config():
 
     Includes:
     - Base config (hardware, model, dataset, experiment)
-    - Time series forecast config (seq_len, horizon)
+    - Time series forecast config (seq_len, pred_len)
     - Deep learning config (optimizer, hyperparameters)
     - TSMixer base args (activation_fn, num_blocks, dropout_rate, ff_dim, etc.)
     - TSMixerExt-specific args (extra_channels, hidden_channels, static_channels)
@@ -1627,7 +1654,7 @@ def get_formers_config():
 
     Includes:
     - Base config (hardware, model, dataset, experiment)
-    - Time series forecast config (seq_len, horizon)
+    - Time series forecast config (seq_len, pred_len)
     - Deep learning config (optimizer, hyperparameters)
     - Common Transformer architecture (shared with PatchTST)
     - Formers-specific config (decoder, embeddings, etc.)
@@ -1667,7 +1694,7 @@ def get_autoformer_config():
 
     Includes:
     - Base config (hardware, model, dataset, experiment)
-    - Time series forecast config (seq_len, horizon)
+    - Time series forecast config (seq_len, pred_len)
     - Deep learning config (optimizer, hyperparameters)
     - Common Transformer architecture (shared with other Formers)
     - Formers-specific config (decoder, embeddings, etc.)
@@ -1706,7 +1733,7 @@ def get_dlinear_config():
 
     Includes:
     - Base config (hardware, model, dataset, experiment)
-    - Time series forecast config (seq_len, horizon)
+    - Time series forecast config (seq_len, pred_len)
     - Deep learning config (optimizer, hyperparameters)
     - DLinear model architecture
     - SAM/GSAM optimization
@@ -1724,13 +1751,44 @@ def get_dlinear_config():
     return parser
 
 
+def get_informer_config():
+    """
+    Complete Informer configuration parser.
+
+    Includes:
+    - Base config (hardware, model, dataset, experiment)
+    - Time series forecast config (seq_len, pred_len)
+    - Deep learning config (optimizer, hyperparameters)
+    - Common Transformer architecture (shared with other Formers)
+    - Formers-specific config (decoder, embeddings, distillation, etc.)
+    - SAM/GSAM optimization
+    - Loss landscape visualization
+
+    Note: Informer uses the same arguments as other Formers (Autoformer, Transformer).
+    The key Informer-specific feature is the `distil` parameter which controls
+    whether to use distilling (ConvLayers) in the encoder for self-attention
+    distillation, reducing complexity from O(L^2) to O(LlogL).
+    """
+    parser = get_base_config()
+
+    parser = _add_time_series_forecast_args(parser)
+    parser = _add_deep_learning_args(parser)
+    parser = _add_formers_common_args(parser)
+    parser = _add_formers_specific_args(parser)
+    parser = _add_sam_args(parser)
+    parser = _add_gsam_args(parser)
+    parser = _add_loss_landscape_args(parser)
+
+    return parser
+
+
 def get_patchtst_config():
     """
     Complete PatchTST configuration parser.
 
     Includes:
     - Base config (hardware, model, dataset, experiment)
-    - Time series forecast config (seq_len, horizon)
+    - Time series forecast config (seq_len, pred_len)
     - Deep learning config (optimizer, hyperparameters)
     - Common Transformer architecture (shared with Formers)
     - PatchTST-specific config (patches, RevIN, etc.)
@@ -1834,7 +1892,7 @@ def get_automfles_config():
     Includes:
 
     - Base config (hardware, model, dataset, experiment)
-    - Time series forecast config (seq_len, horizon)
+    - Time series forecast config (seq_len, pred_len)
 
     - StatsForecast config (frequency, parallel processing)
     - Auto MFLES model-specific config (seasonal parameters, validation settings)
@@ -1862,7 +1920,7 @@ def get_auto_tbats_config():
     Includes:
 
     - Base config (hardware, model, dataset, experiment)
-    - Time series forecast config (seq_len, horizon)
+    - Time series forecast config (seq_len, pred_len)
 
     - StatsForecast config (frequency, parallel processing)
     - Auto TBATS model-specific config (seasonal parameters, Box-Cox, trend, ARMA)
@@ -1890,7 +1948,7 @@ def get_historic_average_config():
     Includes:
 
     - Base config (hardware, model, dataset, experiment)
-    - Time series forecast config (seq_len, horizon)
+    - Time series forecast config (seq_len, pred_len)
 
     - StatsForecast config (frequency, parallel processing)
     - Historic Average model-specific config
@@ -1910,7 +1968,7 @@ def get_naive_config():
     Includes:
 
     - Base config (hardware, model, dataset, experiment)
-    - Time series forecast config (seq_len, horizon)
+    - Time series forecast config (seq_len, pred_len)
 
     - StatsForecast config (frequency, parallel processing)
     - Naive model-specific config
@@ -1930,7 +1988,7 @@ def get_seasonal_naive_config():
     Includes:
 
     - Base config (hardware, model, dataset, experiment)
-    - Time series forecast config (seq_len, horizon)
+    - Time series forecast config (seq_len, pred_len)
 
     - StatsForecast config (frequency, parallel processing)
     - Seasonal Naive model-specific config
@@ -1950,7 +2008,7 @@ def get_seasonal_exponential_smoothing_config():
     Includes:
 
     - Base config (hardware, model, dataset, experiment)
-    - Time series forecast config (seq_len, horizon)
+    - Time series forecast config (seq_len, pred_len)
 
     - StatsForecast config (frequency, parallel processing)
     - Seasonal Exponential Smoothing model-specific config

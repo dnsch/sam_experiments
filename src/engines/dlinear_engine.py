@@ -28,8 +28,8 @@ class DLinear_Engine(TorchEngine):
         """
         Apply RevIN denormalization.
 
-        Dlinear output shape: [batch, horizon, channels]
-        RevIN expects: [batch, horizon, channels]
+        Dlinear output shape: [batch, pred_len, channels]
+        RevIN expects: [batch, pred_len, channels]
         No transpose needed.
         """
         if not self._use_revin or self._revin is None:

@@ -36,12 +36,12 @@ class SAMFormer_Engine(TorchEngine):
             self._plot_attention_patterns(epoch)
 
     # def _prepare_predictions(self, preds) -> torch.Tensor:
-    #     # Reshape to [batch, channels, horizon] for per-horizon evaluation
+    #     # Reshape to [batch, channels, pred_len] for per-horizon evaluation
     #     prepared_preds = preds.permute(0, 2, 1).contiguous()
     #     return prepared_preds
     #
     # def _prepare_ground_truths(self, y_batch) -> torch.Tensor:
-    #     # Reshape to [batch, channels, horizon] for per-horizon evaluation
+    #     # Reshape to [batch, channels, pred_len] for per-horizon evaluation
     #     prepared_y_batch = y_batch.permute(0, 2, 1).contiguous()
     #     return prepared_y_batch
 

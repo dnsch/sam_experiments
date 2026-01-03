@@ -1,4 +1,3 @@
-import torch
 import torch.nn as nn
 
 from src.base.model import BaseModel
@@ -8,24 +7,22 @@ from src.models.time_series.formers.layers.Embed import (
     DataEmbedding_wo_pos_temp,
     DataEmbedding_wo_temp,
 )
-from src.models.time_series.formers.layers.AutoCorrelation import (
-    AutoCorrelation,
-    AutoCorrelationLayer,
+from src.models.time_series.formers.layers.SelfAttention_Family import (
+    ProbAttention,
+    AttentionLayer,
 )
-from src.models.time_series.formers.layers.Autoformer_EncDec import (
+from src.models.time_series.formers.layers.Transformer_EncDec import (
     Encoder,
     Decoder,
     EncoderLayer,
     DecoderLayer,
-    my_Layernorm,
-    series_decomp,
+    ConvLayer,
 )
 
 
-class Autoformer(BaseModel):
+class Informer(BaseModel):
     """
-    Autoformer is the first method to achieve the series-wise connection,
-    with inherent O(LlogL) complexity
+    Informer with ProbSparse attention in O(LlogL) complexity.
     """
 
     def __init__(
@@ -44,13 +41,13 @@ class Autoformer(BaseModel):
         e_layers: int,
         d_layers: int,
         d_ff: int,
-        # Decomposition parameter
-        moving_avg: int,
         # Attention parameters
         factor: int,
         dropout: float,
+        # Distillation (Informer-specific)
+        distil: bool = True,
         # Embedding parameters
-        embed_type: int = 0,  # 0: wo_pos, 1: with_pos, 2: wo_pos, 3: wo_temp, 4: wo_pos_temp
+        embed_type: int = 0,
         embed: str = "timeF",
         freq: str = "h",
         # Activation
@@ -61,26 +58,20 @@ class Autoformer(BaseModel):
     ):
         super().__init__(seq_len=seq_len, pred_len=pred_len)
 
-        # Store parameters
         self.label_len = label_len
         self.output_attention = output_attention
-
-        # Decomp
-        kernel_size = moving_avg
-        self.decomp = series_decomp(kernel_size)
+        self.distil = distil
 
         # Embedding
-        # The series-wise connection inherently contains the sequential information.
-        # Thus, we can discard the position embedding of transformers.
         if embed_type == 0:
-            self.enc_embedding = DataEmbedding_wo_pos(
+            self.enc_embedding = DataEmbedding(
                 enc_in,
                 d_model,
                 embed,
                 freq,
                 dropout,
             )
-            self.dec_embedding = DataEmbedding_wo_pos(
+            self.dec_embedding = DataEmbedding(
                 dec_in,
                 d_model,
                 embed,
@@ -152,8 +143,8 @@ class Autoformer(BaseModel):
         self.encoder = Encoder(
             [
                 EncoderLayer(
-                    AutoCorrelationLayer(
-                        AutoCorrelation(
+                    AttentionLayer(
+                        ProbAttention(
                             False,
                             factor,
                             attention_dropout=dropout,
@@ -164,21 +155,21 @@ class Autoformer(BaseModel):
                     ),
                     d_model,
                     d_ff,
-                    moving_avg=moving_avg,
                     dropout=dropout,
                     activation=activation,
                 )
                 for l in range(e_layers)
             ],
-            norm_layer=my_Layernorm(d_model),
+            [ConvLayer(d_model) for l in range(e_layers - 1)] if distil else None,
+            norm_layer=nn.LayerNorm(d_model),
         )
 
         # Decoder
         self.decoder = Decoder(
             [
                 DecoderLayer(
-                    AutoCorrelationLayer(
-                        AutoCorrelation(
+                    AttentionLayer(
+                        ProbAttention(
                             True,
                             factor,
                             attention_dropout=dropout,
@@ -187,8 +178,8 @@ class Autoformer(BaseModel):
                         d_model,
                         n_heads,
                     ),
-                    AutoCorrelationLayer(
-                        AutoCorrelation(
+                    AttentionLayer(
+                        ProbAttention(
                             False,
                             factor,
                             attention_dropout=dropout,
@@ -198,15 +189,13 @@ class Autoformer(BaseModel):
                         n_heads,
                     ),
                     d_model,
-                    c_out,
                     d_ff,
-                    moving_avg=moving_avg,
                     dropout=dropout,
                     activation=activation,
                 )
                 for l in range(d_layers)
             ],
-            norm_layer=my_Layernorm(d_model),
+            norm_layer=nn.LayerNorm(d_model),
             projection=nn.Linear(d_model, c_out, bias=True),
         )
 
@@ -221,35 +210,20 @@ class Autoformer(BaseModel):
         dec_enc_mask=None,
         flatten_output=False,
     ):
-        # decomp init
-        mean = torch.mean(x_enc, dim=1).unsqueeze(1).repeat(1, self.pred_len, 1)
-        zeros = torch.zeros([x_dec.shape[0], self.pred_len, x_dec.shape[2]], device=x_enc.device)
-        seasonal_init, trend_init = self.decomp(x_enc)
-
-        # decoder input
-        trend_init = torch.cat([trend_init[:, -self.label_len :, :], mean], dim=1)
-        seasonal_init = torch.cat([seasonal_init[:, -self.label_len :, :], zeros], dim=1)
-
-        # enc
         enc_out = self.enc_embedding(x_enc, x_mark_enc)
         enc_out, attns = self.encoder(enc_out, attn_mask=enc_self_mask)
 
-        # dec
-        dec_out = self.dec_embedding(seasonal_init, x_mark_dec)
-        seasonal_part, trend_part = self.decoder(
+        dec_out = self.dec_embedding(x_dec, x_mark_dec)
+        dec_out = self.decoder(
             dec_out,
             enc_out,
             x_mask=dec_self_mask,
             cross_mask=dec_enc_mask,
-            trend=trend_init,
         )
 
-        # final
-        dec_out = trend_part + seasonal_part
         output = dec_out[:, -self.pred_len :, :]  # [B, L, D]
 
         if flatten_output:
-            # Flatten to [Batch, Output_length * Channel] for compatibility
             output = output.reshape(output.shape[0], -1)
 
         if self.output_attention:

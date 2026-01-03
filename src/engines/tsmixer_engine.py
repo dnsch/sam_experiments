@@ -47,12 +47,12 @@ class TSMixer_Engine(TorchEngine):
         """
         Apply RevIN denormalization to output tensor.
 
-        TSMixer output shape: [batch, horizon, channels]
-        RevIN expects: [batch, horizon, channels]
+        TSMixer output shape: [batch, pred_len, channels]
+        RevIN expects: [batch, pred_len, channels]
         No transpose needed.
 
         Args:
-            x: Output tensor of shape [batch, horizon, channels]
+            x: Output tensor of shape [batch, pred_len, channels]
 
         Returns:
             Denormalized tensor of same shape
@@ -70,13 +70,14 @@ class TSMixer_Engine(TorchEngine):
         return batch_dict
 
     def _prepare_test_data(self, preds, labels) -> Tuple[torch.Tensor, torch.Tensor]:
-        # Reshape to [batch, channels, horizon] for per-horizon evaluation
+        # Reshape to [batch, channels, pred_len] for per-horizon evaluation
+
         preds = preds.reshape(preds.shape[0], self.num_channels, self.pred_len)
         labels = labels.reshape(labels.shape[0], self.num_channels, self.pred_len)
         return preds, labels
 
     def _prepare_predictions(self, preds) -> torch.Tensor:
-        # Reshape to [batch, channels, horizon] for per-horizon evaluation
+        # Reshape to [batch, channels, pred_len] for per-horizon evaluation
         prepared_preds = preds.permute(0, 2, 1).contiguous()
         return prepared_preds
 

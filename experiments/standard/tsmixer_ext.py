@@ -53,7 +53,7 @@ class TSMixerExtExperiment(TorchStandardExperiment):
             {
                 "batch_size": args.batch_size,
                 "num_channels": num_channels,
-                "pred_len": args.horizon,
+                "pred_len": args.pred_len,
                 "extra_channels": extra_channels,
                 "static_channels": static_channels,
             }
@@ -70,7 +70,7 @@ class TSMixerExtExperiment(TorchStandardExperiment):
         return TSMixerExt(
             num_channels=num_channels,
             seq_len=args.seq_len,
-            horizon=args.horizon,
+            pred_len=args.pred_len,
             extra_channels=extra_channels,
             hidden_channels=args.hidden_channels,
             static_channels=static_channels,

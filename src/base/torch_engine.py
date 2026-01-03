@@ -535,7 +535,11 @@ class TorchEngine(ABC):
         all_metric_names = self._get_metric_names()
         horizon_metrics = {metric: [] for metric in all_metric_names}
 
-        for i in range(self.model.horizon):
+        import pdb
+
+        pdb.set_trace()
+
+        for i in range(self.model.pred_len):
             horizon_pred = preds[:, :, i].contiguous()
             horizon_true = labels[:, :, i].contiguous()
 
@@ -639,8 +643,8 @@ class TorchEngine(ABC):
             )
 
             # Mean predictions per horizon
-            per_day_preds = [preds[:, :, i].mean() for i in range(self.model.horizon)]
-            per_day_labels = [labels[:, :, i].mean() for i in range(self.model.horizon)]
+            per_day_preds = [preds[:, :, i].mean() for i in range(self.model.pred_len)]
+            per_day_labels = [labels[:, :, i].mean() for i in range(self.model.pred_len)]
 
             plot_mean_per_day(
                 per_day_preds,
@@ -723,11 +727,11 @@ class TorchEngine(ABC):
         Override this method in subclasses if your model requires
         different transpose/permutation logic.
 
-        Default assumes output shape: [batch, channels, horizon]
-        RevIN expects: [batch, horizon, channels]
+        Default assumes output shape: [batch, channels, pred_len]
+        RevIN expects: [batch, pred_len, channels]
 
         Args:
-            x: Output tensor of shape [batch, channels, horizon]
+            x: Output tensor of shape [batch, channels, pred_len]
 
         Returns:
             Denormalized tensor of same shape
@@ -953,7 +957,6 @@ class TorchEngine(ABC):
             batch_dict = self._prepare_batch(batch)
             self._current_batch = batch_dict
 
-            # Move to device
             batch_dict = self._to_device(batch_dict)
             self._current_batch = batch_dict
 
@@ -1106,6 +1109,7 @@ class TorchEngine(ABC):
                 # RevIN Denormalization
                 pred = self._revin_denorm(pred)
 
+                # TODO: remove squeeze(-1)?
                 preds.append(pred.squeeze(-1).cpu())
                 labels.append(y_batch.squeeze(-1).cpu())
 

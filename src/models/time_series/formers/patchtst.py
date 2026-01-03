@@ -48,7 +48,7 @@ class PatchTST(BaseModel):
         verbose: bool = False,  # legacy, unused, but kept for compatibility
         **kwargs,
     ):
-        super().__init__()
+        super().__init__(seq_len=seq_len, pred_len=pred_len)
 
         # Store parameters
         self.num_channels = enc_in  # For engine to access for RevIN init

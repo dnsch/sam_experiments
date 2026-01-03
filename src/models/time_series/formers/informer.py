@@ -1,101 +1,157 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from utils.masking import TriangularCausalMask, ProbMask
-from layers.Transformer_EncDec import Decoder, DecoderLayer, Encoder, EncoderLayer, ConvLayer
-from layers.SelfAttention_Family import FullAttention, ProbAttention, AttentionLayer
-from layers.Embed import DataEmbedding,DataEmbedding_wo_pos,DataEmbedding_wo_temp,DataEmbedding_wo_pos_temp
-import numpy as np
+from src.base.model import BaseModel
+
+from src.models.time_series.formers.utils.masking import TriangularCausalMask, ProbMask
+from src.models.time_series.formers.layers.Informer_EncDec import (
+    Encoder,
+    EncoderLayer,
+    ConvLayer,
+    EncoderStack,
+    Decoder,
+    DecoderLayer,
+)
+
+from src.models.time_series.formers.layers.SelfAttention_Family import (
+    FullAttention,
+    ProbAttention,
+    AttentionLayer,
+)
+from src.models.time_series.formers.layers.Embed import DataEmbedding
 
 
-class Model(nn.Module):
+"""
+WIP, model seems to be training correctly, but fails during evaluation. 
+Possible reasons: model is not saved correctly (?), as eval predictions 
+resemble those that we get at traingin epoch 0.
+Predictions std. seems to collapse during evaluation, but stays normal during
+training tasks.
+"""
+
+
+class Informer(BaseModel):
     """
-    Informer with Propspare attention in O(LlogL) complexity
+    Informer with ProbSparse attention in O(LlogL) complexity.
     """
-    def __init__(self, configs):
-        super(Model, self).__init__()
-        self.pred_len = configs.pred_len
-        self.output_attention = configs.output_attention
 
-        # Embedding
-        if configs.embed_type == 0:
-            self.enc_embedding = DataEmbedding(configs.enc_in, configs.d_model, configs.embed, configs.freq,
-                                            configs.dropout)
-            self.dec_embedding = DataEmbedding(configs.dec_in, configs.d_model, configs.embed, configs.freq,
-                                           configs.dropout)
-        elif configs.embed_type == 1:
-            self.enc_embedding = DataEmbedding(configs.enc_in, configs.d_model, configs.embed, configs.freq,
-                                                    configs.dropout)
-            self.dec_embedding = DataEmbedding(configs.dec_in, configs.d_model, configs.embed, configs.freq,
-                                                    configs.dropout)
-        elif configs.embed_type == 2:
-            self.enc_embedding = DataEmbedding_wo_pos(configs.enc_in, configs.d_model, configs.embed, configs.freq,
-                                                    configs.dropout)
-            self.dec_embedding = DataEmbedding_wo_pos(configs.dec_in, configs.d_model, configs.embed, configs.freq,
-                                                    configs.dropout)
+    def __init__(
+        self,
+        seq_len,
+        label_len,
+        pred_len,
+        enc_in,
+        dec_in,
+        c_out,
+        d_model=512,
+        n_heads=8,
+        e_layers=3,
+        d_layers=2,
+        d_ff=512,
+        factor=5,
+        dropout=0.0,
+        distil=True,
+        embed="fixed",
+        freq="h",
+        attn="prob",
+        activation="gelu",
+        output_attention=False,
+        mix=True,
+        device=torch.device("cuda:0"),
+    ):
+        super().__init__(seq_len=seq_len, pred_len=pred_len)
+        self.attn = attn
+        self.output_attention = output_attention
 
-        elif configs.embed_type == 3:
-            self.enc_embedding = DataEmbedding_wo_temp(configs.enc_in, configs.d_model, configs.embed, configs.freq,
-                                                    configs.dropout)
-            self.dec_embedding = DataEmbedding_wo_temp(configs.dec_in, configs.d_model, configs.embed, configs.freq,
-                                                    configs.dropout)
-        elif configs.embed_type == 4:
-            self.enc_embedding = DataEmbedding_wo_pos_temp(configs.enc_in, configs.d_model, configs.embed, configs.freq,
-                                                    configs.dropout)
-            self.dec_embedding = DataEmbedding_wo_pos_temp(configs.dec_in, configs.d_model, configs.embed, configs.freq,
-                                                    configs.dropout)
+        self.label_len = label_len
+        self.distil = distil
+
+        # Encoding
+        self.enc_embedding = DataEmbedding(enc_in, d_model, embed, freq, dropout)
+        self.dec_embedding = DataEmbedding(dec_in, d_model, embed, freq, dropout)
+        # Attention
+        Attn = ProbAttention if attn == "prob" else FullAttention
         # Encoder
         self.encoder = Encoder(
             [
                 EncoderLayer(
                     AttentionLayer(
-                        ProbAttention(False, configs.factor, attention_dropout=configs.dropout,
-                                      output_attention=configs.output_attention),
-                        configs.d_model, configs.n_heads),
-                    configs.d_model,
-                    configs.d_ff,
-                    dropout=configs.dropout,
-                    activation=configs.activation
-                ) for l in range(configs.e_layers)
+                        Attn(
+                            False,
+                            factor,
+                            attention_dropout=dropout,
+                            output_attention=output_attention,
+                        ),
+                        d_model,
+                        n_heads,
+                        mix=False,
+                    ),
+                    d_model,
+                    d_ff,
+                    dropout=dropout,
+                    activation=activation,
+                )
+                for l in range(e_layers)
             ],
-            [
-                ConvLayer(
-                    configs.d_model
-                ) for l in range(configs.e_layers - 1)
-            ] if configs.distil else None,
-            norm_layer=torch.nn.LayerNorm(configs.d_model)
+            [ConvLayer(d_model) for l in range(e_layers - 1)] if distil else None,
+            norm_layer=torch.nn.LayerNorm(d_model),
         )
         # Decoder
         self.decoder = Decoder(
             [
                 DecoderLayer(
                     AttentionLayer(
-                        ProbAttention(True, configs.factor, attention_dropout=configs.dropout, output_attention=False),
-                        configs.d_model, configs.n_heads),
+                        Attn(True, factor, attention_dropout=dropout, output_attention=False),
+                        d_model,
+                        n_heads,
+                        mix=mix,
+                    ),
                     AttentionLayer(
-                        ProbAttention(False, configs.factor, attention_dropout=configs.dropout, output_attention=False),
-                        configs.d_model, configs.n_heads),
-                    configs.d_model,
-                    configs.d_ff,
-                    dropout=configs.dropout,
-                    activation=configs.activation,
+                        FullAttention(
+                            False, factor, attention_dropout=dropout, output_attention=False
+                        ),
+                        d_model,
+                        n_heads,
+                        mix=False,
+                    ),
+                    d_model,
+                    d_ff,
+                    dropout=dropout,
+                    activation=activation,
                 )
-                for l in range(configs.d_layers)
+                for l in range(d_layers)
             ],
-            norm_layer=torch.nn.LayerNorm(configs.d_model),
-            projection=nn.Linear(configs.d_model, configs.c_out, bias=True)
+            norm_layer=torch.nn.LayerNorm(d_model),
         )
+        # self.end_conv1 = nn.Conv1d(in_channels=label_len+out_len, out_channels=out_len, kernel_size=1, bias=True)
+        # self.end_conv2 = nn.Conv1d(in_channels=d_model, out_channels=c_out, kernel_size=1, bias=True)
+        self.projection = nn.Linear(d_model, c_out, bias=True)
 
-    def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec,
-                enc_self_mask=None, dec_self_mask=None, dec_enc_mask=None):
-
+    def forward(
+        self,
+        x_enc,
+        x_mark_enc,
+        x_dec,
+        x_mark_dec,
+        enc_self_mask=None,
+        dec_self_mask=None,
+        dec_enc_mask=None,
+        flatten_output=False,
+    ):
         enc_out = self.enc_embedding(x_enc, x_mark_enc)
         enc_out, attns = self.encoder(enc_out, attn_mask=enc_self_mask)
 
         dec_out = self.dec_embedding(x_dec, x_mark_dec)
         dec_out = self.decoder(dec_out, enc_out, x_mask=dec_self_mask, cross_mask=dec_enc_mask)
+        dec_out = self.projection(dec_out)
+
+        # dec_out = self.end_conv1(dec_out)
+        # dec_out = self.end_conv2(dec_out.transpose(2,1)).transpose(1,2)
+        output = dec_out[:, -self.pred_len :, :]  # [B, L, D]
+
+        if flatten_output:
+            output = output.reshape(output.shape[0], -1)
 
         if self.output_attention:
-            return dec_out[:, -self.pred_len:, :], attns
+            return output, attns
         else:
-            return dec_out[:, -self.pred_len:, :]  # [B, L, D]
+            return output

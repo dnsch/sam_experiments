@@ -51,12 +51,12 @@ class TSMixerExt_Engine(TorchEngine):
         """
         Apply RevIN denormalization to output tensor.
 
-        TSMixerExt output shape: [batch, horizon, channels]
-        RevIN expects: [batch, horizon, channels]
+        TSMixerExt output shape: [batch, pred_len, channels]
+        RevIN expects: [batch, pred_len, channels]
         No transpose needed.
 
         Args:
-            x: Output tensor of shape [batch, horizon, channels]
+            x: Output tensor of shape [batch, pred_len, channels]
 
         Returns:
             Denormalized tensor of same shape
@@ -70,9 +70,9 @@ class TSMixerExt_Engine(TorchEngine):
         Prepare TSMixerExt batch with 5 elements:
         - x_hist: (batch, seq_len, num_channels)
         - x_extra_hist: (batch, seq_len, extra_channels)
-        - x_extra_future: (batch, horizon, extra_channels)
+        - x_extra_future: (batch, pred_len, extra_channels)
         - x_static: (batch, static_channels)
-        - y: (batch, horizon, num_channels)
+        - y: (batch, pred_len, num_channels)
 
         """
         x_hist, x_extra_hist, x_extra_future, x_static, y = batch
@@ -89,18 +89,18 @@ class TSMixerExt_Engine(TorchEngine):
         }
 
     def _prepare_test_data(self, preds, labels) -> Tuple[torch.Tensor, torch.Tensor]:
-        # Reshape to [batch, channels, horizon] for per-horizon evaluation
+        # Reshape to [batch, channels, pred_len] for per-horizon evaluation
         preds = preds.reshape(preds.shape[0], self.num_channels, self.pred_len)
         labels = labels.reshape(labels.shape[0], self.num_channels, self.pred_len)
         return preds, labels
 
     def _prepare_predictions(self, preds) -> torch.Tensor:
-        # Reshape to [batch, channels, horizon] for per-horizon evaluation
+        # Reshape to [batch, channels, pred_len] for per-horizon evaluation
         prepared_preds = preds.permute(0, 2, 1).contiguous()
         return prepared_preds
 
     def _prepare_ground_truths(self, y_batch) -> torch.Tensor:
-        # Reshape to [batch, channels, horizon] for per-horizon evaluation
+        # Reshape to [batch, channels, pred_len] for per-horizon evaluation
         prepared_y_batch = y_batch.permute(0, 2, 1).contiguous()
         return prepared_y_batch
 

@@ -19,7 +19,7 @@ class TSMixer(BaseModel):
     Args:
         num_channels: Number of input channels/features.
         seq_len: Length of the input time series sequence.
-        horizon: Desired length of the output prediction sequence.
+        pred_len: Desired length of the output prediction sequence.
         output_channels: Number of output channels. Defaults to num_channels.
         activation_fn: Activation function to use. Defaults to "relu".
         num_blocks: Number of mixer blocks. Defaults to 2.
@@ -33,7 +33,7 @@ class TSMixer(BaseModel):
         self,
         num_channels: int,
         seq_len: int = 96,
-        horizon: int = 96,
+        pred_len: int = 96,
         output_channels: int = None,
         activation_fn: str = "relu",
         num_blocks: int = 2,
@@ -43,7 +43,8 @@ class TSMixer(BaseModel):
         norm_type: str = "batch",
         **kwargs,
     ):
-        super().__init__(seq_len=seq_len, horizon=horizon)
+        # Pass seq_len and pred_len to BaseModel
+        super().__init__(seq_len=seq_len, pred_len=pred_len)
 
         self.num_channels = num_channels
         self.output_channels = output_channels if output_channels is not None else num_channels
@@ -72,7 +73,7 @@ class TSMixer(BaseModel):
         )
 
         # Temporal projection layer
-        self.temporal_projection = nn.Linear(seq_len, horizon)
+        self.temporal_projection = nn.Linear(seq_len, pred_len)
 
         # Initialize weights
         self._init_weights()
@@ -106,7 +107,7 @@ class TSMixer(BaseModel):
             flatten_output: Whether to flatten the output. Defaults to False.
 
         Returns:
-            Output tensor (batch_size, horizon, output_channels) or flattened.
+            Output tensor (batch_size, pred_len, output_channels) or flattened.
         """
 
         # Note: If use_revin, then x_hist is already revin normalized
@@ -126,7 +127,7 @@ class TSMixer(BaseModel):
 
 
 if __name__ == "__main__":
-    m = TSMixer(num_channels=2, seq_len=10, horizon=5, output_channels=4)
+    m = TSMixer(num_channels=2, seq_len=10, pred_len=5, output_channels=4)
     x = torch.randn(3, 10, 2)
     y = m(x)
     print(f"Input shape: {x.shape}")

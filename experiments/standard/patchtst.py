@@ -24,7 +24,7 @@ class PatchTSTExperiment(TorchStandardExperiment):
             # Core architecture parameters
             enc_in=args.enc_in,
             seq_len=args.seq_len,
-            pred_len=args.horizon,
+            pred_len=args.pred_len,
             e_layers=args.e_layers,
             n_heads=args.n_heads,
             d_model=args.d_model,

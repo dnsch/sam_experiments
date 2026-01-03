@@ -72,7 +72,7 @@ class TorchStandardExperiment(BaseExperiment):
 
     def get_log_dir_params(self, args: argparse.Namespace) -> str:
         """Get parameter-specific part of log directory path."""
-        base_params = f"seq_len_{args.seq_len}_pred_len_{args.horizon}_bs_{args.batch_size}"
+        base_params = f"seq_len_{args.seq_len}_pred_len_{args.pred_len}_bs_{args.batch_size}"
         if getattr(args, "sam", False):
             return f"{base_params}_rho_{args.rho}"
         elif getattr(args, "gsam", False):
@@ -108,7 +108,7 @@ class TorchStandardExperiment(BaseExperiment):
         return {
             "dataset": args.dataset,
             "seq_len": args.seq_len,
-            "pred_len": args.horizon,
+            "pred_len": args.pred_len,
             "seed": args.seed,
             "time_increment": getattr(args, "time_increment", 1),
             "train_ratio": args.train_ratio,

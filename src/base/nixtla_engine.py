@@ -252,7 +252,7 @@ class NixtlaEngine:
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Prepare test data for evaluation.
-        Reshapes data to format: (batch, channels, horizon) to match TorchEngine.
+        Reshapes data to format: (batch, channels, pred_len) to match TorchEngine.
 
         Args:
             preds: Raw predictions tensor
@@ -261,7 +261,7 @@ class NixtlaEngine:
         Returns:
             Tuple of (preds, labels) in standardized format (BxCxT)
         """
-        # Reshape to (batch, channels, horizon)
+        # Reshape to (batch, channels, pred_len)
         preds = preds.reshape(preds.shape[0], self._num_channels, self._pred_len)
         labels = labels.reshape(labels.shape[0], self._num_channels, self._pred_len)
 

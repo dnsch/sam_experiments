@@ -3,10 +3,10 @@ from abc import abstractmethod
 
 
 class BaseModel(nn.Module):
-    def __init__(self, seq_len=96, horizon=96):
+    def __init__(self, seq_len=96, pred_len=96):
         super(BaseModel, self).__init__()
         self.seq_len = seq_len
-        self.horizon = horizon
+        self.pred_len = pred_len
 
     @abstractmethod
     def forward(self):
@@ -70,9 +70,7 @@ class BaseModel(nn.Module):
         val_col_width = 37
 
         # Table header
-        lines.append(
-            f"| {'Argument'.ljust(arg_col_width)} | {'Value'.ljust(val_col_width)} |"
-        )
+        lines.append(f"| {'Argument'.ljust(arg_col_width)} | {'Value'.ljust(val_col_width)} |")
         lines.append(f"|{'-' * (arg_col_width + 3)}{'-' * (val_col_width + 2)}|")
 
         args_dict = vars(args)
@@ -103,19 +101,13 @@ class BaseModel(nn.Module):
                 if group_args:
                     # Add separator line between groups (except before first group)
                     if not first_group:
-                        lines.append(
-                            f"|{'-' * (arg_col_width + 3)}{'-' * (val_col_width + 2)}|"
-                        )
+                        lines.append(f"|{'-' * (arg_col_width + 3)}{'-' * (val_col_width + 2)}|")
                     first_group = False
 
                     # Group header
                     group_header = f"*** {group.title} ***"
-                    lines.append(
-                        f"| {group_header.ljust(arg_col_width + val_col_width + 3)} |"
-                    )
-                    lines.append(
-                        f"|{'-' * (arg_col_width + 3)}{'-' * (val_col_width + 2)}|"
-                    )
+                    lines.append(f"| {group_header.ljust(arg_col_width + val_col_width + 3)} |")
+                    lines.append(f"|{'-' * (arg_col_width + 3)}{'-' * (val_col_width + 2)}|")
 
                     # Group arguments
                     for name, value in group_args:
@@ -153,9 +145,7 @@ class BaseModel(nn.Module):
                 if len(value_str) > val_col_width:
                     value_str = value_str[: val_col_width - 3] + "..."
 
-                lines.append(
-                    f"| {name.ljust(arg_col_width)} | {value_str.ljust(val_col_width)} |"
-                )
+                lines.append(f"| {name.ljust(arg_col_width)} | {value_str.ljust(val_col_width)} |")
 
         # Bottom border
         lines.append("=" * width)

@@ -116,9 +116,7 @@ class VGG_Engine(TorchEngine):
             if test_loss < min_loss:
                 self.save_model(self._save_path)
                 self._logger.info(
-                    "Val loss decrease from {:.4f} to {:.4f}".format(
-                        min_loss, test_loss
-                    )
+                    "Val loss decrease from {:.4f} to {:.4f}".format(min_loss, test_loss)
                 )
                 min_loss = test_loss
                 wait = 0
@@ -126,9 +124,7 @@ class VGG_Engine(TorchEngine):
                 wait += 1
                 if wait == self._patience:
                     self._logger.info(
-                        "Early stop at epoch {}, loss = {:.6f}".format(
-                            epoch + 1, min_loss
-                        )
+                        "Early stop at epoch {}, loss = {:.6f}".format(epoch + 1, min_loss)
                     )
                     self._epochs = epoch + 1
                     break

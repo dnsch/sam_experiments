@@ -285,7 +285,6 @@ class SamformerDataloader:
         freq="h",  # New parameter for frequency
         timeenc=1,  # New parameter: 0=raw integers, 1=normalized (matches Autoformer)
         embed="timeF",  # New parameter: timeF uses timeenc=1, others use timeenc=0
-        label_len=0,  # New parameter for decoder start token length (Informer-style models)
         # New parameters for TSMixerExt
         model_type="standard",  # "standard" or "tsmixer_ext"
         num_static_features=1,  # Number of static features for TSMixerExt
@@ -314,8 +313,6 @@ class SamformerDataloader:
         # Allow explicit override
         if timeenc is not None and embed == "timeF":
             self.timeenc = timeenc
-        # Label length for decoder start token (Informer-style models)
-        self.label_len = label_len
 
         # TSMixerExt init
         self.model_type = model_type
@@ -405,7 +402,6 @@ class SamformerDataloader:
                         self.pred_len,
                         self.time_increment,
                         train_time,
-                        label_len=self.label_len,
                     )
                     x_val, y_val, x_val_mark, y_val_mark = construct_sliding_window_data(
                         val_arr,
@@ -413,7 +409,6 @@ class SamformerDataloader:
                         self.pred_len,
                         self.time_increment,
                         val_time,
-                        label_len=self.label_len,
                     )
                     x_test, y_test, x_test_mark, y_test_mark = construct_sliding_window_data(
                         test_arr,
@@ -421,29 +416,16 @@ class SamformerDataloader:
                         self.pred_len,
                         self.time_increment,
                         test_time,
-                        label_len=self.label_len,
                     )
                 else:
                     x_train, y_train = construct_sliding_window_data(
-                        train_arr,
-                        self.seq_len,
-                        self.pred_len,
-                        self.time_increment,
-                        label_len=self.label_len,
+                        train_arr, self.seq_len, self.pred_len, self.time_increment
                     )
                     x_val, y_val = construct_sliding_window_data(
-                        val_arr,
-                        self.seq_len,
-                        self.pred_len,
-                        self.time_increment,
-                        label_len=self.label_len,
+                        val_arr, self.seq_len, self.pred_len, self.time_increment
                     )
                     x_test, y_test = construct_sliding_window_data(
-                        test_arr,
-                        self.seq_len,
-                        self.pred_len,
-                        self.time_increment,
-                        label_len=self.label_len,
+                        test_arr, self.seq_len, self.pred_len, self.time_increment
                     )
                     x_train_mark = y_train_mark = None
                     x_val_mark = y_val_mark = None
@@ -530,7 +512,6 @@ class SamformerDataloader:
                     self.pred_len,
                     self.time_increment,
                     train_time,
-                    label_len=self.label_len,
                 )
                 x_val, y_val, x_val_mark, y_val_mark = construct_sliding_window_data(
                     self.val_arr,
@@ -538,7 +519,6 @@ class SamformerDataloader:
                     self.pred_len,
                     self.time_increment,
                     val_time,
-                    label_len=self.label_len,
                 )
                 x_test, y_test, x_test_mark, y_test_mark = construct_sliding_window_data(
                     self.test_arr,
@@ -546,29 +526,16 @@ class SamformerDataloader:
                     self.pred_len,
                     self.time_increment,
                     test_time,
-                    label_len=self.label_len,
                 )
             else:
                 x_train, y_train = construct_sliding_window_data(
-                    self.train_arr,
-                    self.seq_len,
-                    self.pred_len,
-                    self.time_increment,
-                    label_len=self.label_len,
+                    self.train_arr, self.seq_len, self.pred_len, self.time_increment
                 )
                 x_val, y_val = construct_sliding_window_data(
-                    self.val_arr,
-                    self.seq_len,
-                    self.pred_len,
-                    self.time_increment,
-                    label_len=self.label_len,
+                    self.val_arr, self.seq_len, self.pred_len, self.time_increment
                 )
                 x_test, y_test = construct_sliding_window_data(
-                    self.test_arr,
-                    self.seq_len,
-                    self.pred_len,
-                    self.time_increment,
-                    label_len=self.label_len,
+                    self.test_arr, self.seq_len, self.pred_len, self.time_increment
                 )
                 x_train_mark = y_train_mark = None
                 x_val_mark = y_val_mark = None
@@ -651,20 +618,11 @@ class SamformerDataloader:
         # Rebuild x/y with the chosen stride from scaled test segment
         if self.use_time_features:
             x_test_sw, y_test_sw, x_test_mark, y_test_mark = construct_sliding_window_data(
-                self.test_arr,
-                self.seq_len,
-                self.pred_len,
-                stride,
-                test_time,
-                label_len=self.label_len,
+                self.test_arr, self.seq_len, self.pred_len, stride, test_time
             )
         else:
             x_test_sw, y_test_sw = construct_sliding_window_data(
-                self.test_arr,
-                self.seq_len,
-                self.pred_len,
-                stride,
-                label_len=self.label_len,
+                self.test_arr, self.seq_len, self.pred_len, stride
             )
             x_test_mark = y_test_mark = None
 
@@ -692,12 +650,7 @@ class SamformerDataloader:
 
         if self.use_time_features:
             x, y, x_mark, y_mark = construct_sliding_window_data(
-                self.test_arr,
-                self.seq_len,
-                self.pred_len,
-                step,
-                test_time,
-                label_len=self.label_len,
+                self.test_arr, self.seq_len, self.pred_len, step, test_time
             )
             for i in range(x.shape[0]):
                 yield (
@@ -707,13 +660,7 @@ class SamformerDataloader:
                     torch.FloatTensor(y_mark[i]),
                 )
         else:
-            x, y = construct_sliding_window_data(
-                self.test_arr,
-                self.seq_len,
-                self.pred_len,
-                step,
-                label_len=self.label_len,
-            )
+            x, y = construct_sliding_window_data(self.test_arr, self.seq_len, self.pred_len, step)
             for i in range(x.shape[0]):
                 yield torch.FloatTensor(x[i]), torch.FloatTensor(y[i])
 

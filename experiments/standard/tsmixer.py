@@ -39,7 +39,7 @@ class TSMixerExperiment(TorchStandardExperiment):
             {
                 "batch_size": args.batch_size,
                 "num_channels": num_channels,
-                "pred_len": args.horizon,
+                "pred_len": args.pred_len,
                 "use_revin": getattr(args, "use_revin", False),
             }
         )
@@ -54,7 +54,7 @@ class TSMixerExperiment(TorchStandardExperiment):
             input_dim=num_channels,
             output_dim=num_channels,
             seq_len=args.seq_len,
-            horizon=args.horizon,
+            pred_len=args.pred_len,
             activation_fn=args.activation_fn,
             num_blocks=args.num_blocks,
             dropout_rate=args.dropout_rate,

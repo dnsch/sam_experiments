@@ -35,8 +35,8 @@ class PatchTST_Engine(TorchEngine):
         """
         Apply RevIN denormalization.
 
-        PatchTST output shape: [batch, horizon, channels]
-        RevIN expects: [batch, horizon, channels]
+        PatchTST output shape: [batch, pred_len, channels]
+        RevIN expects: [batch, pred_len, channels]
         No transpose needed.
         """
         if not self._use_revin or self._revin is None:

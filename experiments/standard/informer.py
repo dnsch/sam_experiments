@@ -5,29 +5,38 @@ from src.base.torch_standard_experiment import (
     TorchStandardExperiment,
     run_standard_experiment,
 )
-from src.models.time_series.formers.autoformer import Autoformer
-from src.engines.autoformer_engine import Autoformer_Engine
-from src.utils.args import get_autoformer_config
+from src.models.time_series.formers.informer import Informer
+from src.engines.informer_engine import Informer_Engine
+from src.utils.args import get_informer_config
 
 
-class AutoformerStandardExperiment(TorchStandardExperiment):
-    """Autoformer-specific training implementation."""
+"""
+WIP, model seems to be training correctly, but fails during evaluation. 
+Possible reasons: model is not saved correctly (?), as eval predictions 
+resemble those that we get at traingin epoch 0.
+Predictions std. seems to collapse during evaluation, but stays normal during
+training tasks.
+"""
+
+
+class InformerStandardExperiment(TorchStandardExperiment):
+    """Informer-specific training implementation."""
 
     def get_config_parser(self):
-        return get_autoformer_config()
+        return get_informer_config()
 
     def get_model_name(self):
-        return "autoformer"
+        return "informer"
 
     def get_engine_class(self):
-        return Autoformer_Engine
+        return Informer_Engine
 
     def get_dataloader_kwargs(self, args: argparse.Namespace) -> Dict[str, Any]:
-        """Get kwargs for dataloader initialization with time features for Autoformer."""
+        """Get kwargs for dataloader initialization with time features for Informer."""
         # Get base kwargs from parent class
         kwargs = super().get_dataloader_kwargs(args)
 
-        # Add time feature parameters for Autoformer
+        # Add time feature parameters for Informer
         kwargs.update(
             {
                 "use_time_features": getattr(args, "use_time_features", True),
@@ -41,7 +50,7 @@ class AutoformerStandardExperiment(TorchStandardExperiment):
         return kwargs
 
     def create_model(self, args, dataloader):
-        return Autoformer(
+        return Informer(
             # Core sequence parameters
             seq_len=args.seq_len,
             label_len=args.label_len,
@@ -56,21 +65,22 @@ class AutoformerStandardExperiment(TorchStandardExperiment):
             e_layers=args.e_layers,
             d_layers=args.d_layers,
             d_ff=args.d_ff,
-            # Decomposition parameter
-            moving_avg=args.moving_avg,
             # Attention parameters
             factor=args.factor,
             dropout=args.dropout,
+            # Distillation (Informer-specific)
+            distil=args.distil,
             # Embedding parameters
-            embed_type=args.embed_type,
             embed=args.embed,
             freq=args.freq,
+            attn=args.attn,
             # Activation
             activation=args.activation,
             # Output attention
             output_attention=args.output_attention,
+            mix=args.mix,
         )
 
 
 if __name__ == "__main__":
-    run_standard_experiment(AutoformerStandardExperiment)
+    run_standard_experiment(InformerStandardExperiment)

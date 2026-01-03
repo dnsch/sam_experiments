@@ -49,7 +49,7 @@ class SAMFormerExperiment(TorchStandardExperiment):
             num_channels=num_channels,
             seq_len=args.seq_len,
             hid_dim=args.hid_dim,
-            horizon=args.horizon,
+            pred_len=args.pred_len,
             plot_attention=getattr(args, "plot_attention", True),
         )
 

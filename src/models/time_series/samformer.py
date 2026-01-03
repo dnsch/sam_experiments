@@ -4,6 +4,7 @@ from torch import nn
 from src.utils.samformer_utils.attention import scaled_dot_product_attention
 
 # from src.utils.samformer_utils.revin import RevIN
+
 from src.utils.revin import RevIN
 
 from src.base.model import BaseModel
@@ -15,11 +16,12 @@ class SAMFormer(BaseModel):
         num_channels=7,
         seq_len=512,
         hid_dim=16,
-        horizon=720,
+        pred_len=720,
         plot_attention=False,
         **args,
     ):
-        super(SAMFormer, self).__init__(horizon=horizon, **args)
+        super().__init__(seq_len=seq_len, pred_len=pred_len)
+
         # Network architecture:
         # I think there was a bug in the original implementation,
         # see: https://github.com/romilbert/samformer/issues/20
@@ -27,7 +29,7 @@ class SAMFormer(BaseModel):
         self.compute_queries = nn.Linear(seq_len, hid_dim)
         self.compute_values = nn.Linear(seq_len, hid_dim)
         self.output_layer = nn.Linear(hid_dim, seq_len)
-        self.linear_forecaster = nn.Linear(seq_len, horizon)
+        self.linear_forecaster = nn.Linear(seq_len, pred_len)
 
         # Initialize weights to match SAMFormer init
         self._init_weights()
@@ -64,6 +66,7 @@ class SAMFormer(BaseModel):
             att_score, attention_pattern = scaled_dot_product_attention(
                 queries, keys, values, plot_attention=self.plot_attention
             )  # (n, D, L)
+            self.attention_pattern = attention_pattern
         else:
             att_score = scaled_dot_product_attention(
                 queries, keys, values, plot_attention=self.plot_attention
@@ -72,7 +75,6 @@ class SAMFormer(BaseModel):
         # Output layer
         att_score = self.output_layer(att_score)
 
-        self.attention_pattern = attention_pattern
         out = x + att_score  # (n, D, L)
         # Linear Forecasting
         out = self.linear_forecaster(out)  # (n, D, H)

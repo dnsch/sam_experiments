@@ -24,7 +24,7 @@ class TSMixerExt(BaseModel):
     Args:
         num_channels: Number of channels in the historical time series data.
         seq_len: Length of the input time series sequences.
-        horizon: Length of the output prediction sequences.
+        pred_len: Length of the output prediction sequences.
         extra_channels: Number of channels in the extra (future known) inputs.
         hidden_channels: Number of hidden channels used in the mixer layers.
         static_channels: Number of channels in the static feature inputs.
@@ -40,7 +40,7 @@ class TSMixerExt(BaseModel):
         self,
         num_channels: int,
         seq_len: int = 96,
-        horizon: int = 96,
+        pred_len: int = 96,
         extra_channels: int = 1,
         hidden_channels: int = 64,
         static_channels: int = 1,
@@ -53,7 +53,8 @@ class TSMixerExt(BaseModel):
         **kwargs,
     ):
         assert static_channels > 0, "static_channels must be greater than 0"
-        super().__init__(seq_len=seq_len, horizon=horizon)
+        # Pass seq_len and pred_len to BaseModel
+        super().__init__(seq_len=seq_len, pred_len=pred_len)
 
         self.num_channels = num_channels
 
@@ -61,18 +62,19 @@ class TSMixerExt(BaseModel):
         activation_fn_callable = getattr(F, activation_fn)
 
         # Transform norm_type to callable
-        assert norm_type in {"batch", "layer"}, (
-            f"Invalid norm_type: {norm_type}, must be one of batch, layer."
-        )
+        assert norm_type in {
+            "batch",
+            "layer",
+        }, f"Invalid norm_type: {norm_type}, must be one of batch, layer."
         norm_type_cls = TimeBatchNorm2d if norm_type == "batch" else nn.LayerNorm
 
         # Linear projections
-        self.fc_hist = nn.Linear(seq_len, horizon)
+        self.fc_hist = nn.Linear(seq_len, pred_len)
         self.fc_out = nn.Linear(hidden_channels, num_channels)
 
         # Feature mixing layers
         self.feature_mixing_hist = ConditionalFeatureMixing(
-            sequence_length=horizon,
+            sequence_length=pred_len,
             input_channels=num_channels + extra_channels,
             output_channels=hidden_channels,
             static_channels=static_channels,
@@ -83,7 +85,7 @@ class TSMixerExt(BaseModel):
             norm_type=norm_type_cls,
         )
         self.feature_mixing_future = ConditionalFeatureMixing(
-            sequence_length=horizon,
+            sequence_length=pred_len,
             input_channels=extra_channels,
             output_channels=hidden_channels,
             static_channels=static_channels,
@@ -98,7 +100,7 @@ class TSMixerExt(BaseModel):
         self.conditional_mixer = self._build_mixer(
             num_blocks,
             hidden_channels,
-            horizon,
+            pred_len,
             ff_dim=ff_dim,
             static_channels=static_channels,
             activation_fn=activation_fn_callable,
@@ -111,7 +113,7 @@ class TSMixerExt(BaseModel):
         self._init_weights()
 
     @staticmethod
-    def _build_mixer(num_blocks: int, hidden_channels: int, horizon: int, **kwargs):
+    def _build_mixer(num_blocks: int, hidden_channels: int, pred_len: int, **kwargs):
         """Build the conditional mixer blocks for the model."""
         channels = [2 * hidden_channels] + [hidden_channels] * (num_blocks - 1)
 
@@ -120,7 +122,7 @@ class TSMixerExt(BaseModel):
                 ConditionalMixerLayer(
                     input_channels=in_ch,
                     output_channels=out_ch,
-                    sequence_length=horizon,
+                    sequence_length=pred_len,
                     **kwargs,
                 )
                 for in_ch, out_ch in zip(channels[:-1], channels[1:])
@@ -140,12 +142,12 @@ class TSMixerExt(BaseModel):
         Args:
             x_hist: Historical time series (batch_size, seq_len, num_channels).
             x_extra_hist: Extra historical features (batch_size, seq_len, extra_channels).
-            x_extra_future: Future known features (batch_size, horizon, extra_channels).
+            x_extra_future: Future known features (batch_size, pred_len, extra_channels).
             x_static: Static features (batch_size, static_channels).
             flatten_output: Whether to flatten the output.
 
         Returns:
-            Output tensor (batch_size, horizon, num_channels) or flattened.
+            Output tensor (batch_size, pred_len, num_channels) or flattened.
         """
         # Note: If use_revin, then x is already revin normalized
 
@@ -176,7 +178,7 @@ class TSMixerExt(BaseModel):
 
 if __name__ == "__main__":
     seq_len = 10
-    horizon = 5
+    pred_len = 5
     num_channels = 2
     extra_channels = 3
     hidden_channels = 8
@@ -185,7 +187,7 @@ if __name__ == "__main__":
     m = TSMixerExt(
         num_channels=num_channels,
         seq_len=seq_len,
-        horizon=horizon,
+        pred_len=pred_len,
         extra_channels=extra_channels,
         hidden_channels=hidden_channels,
         static_channels=static_channels,
@@ -193,7 +195,7 @@ if __name__ == "__main__":
 
     x_hist = torch.randn(3, seq_len, num_channels)
     x_extra_hist = torch.randn(3, seq_len, extra_channels)
-    x_extra_future = torch.randn(3, horizon, extra_channels)
+    x_extra_future = torch.randn(3, pred_len, extra_channels)
     x_static = torch.randn(3, static_channels)
 
     y = m(x_hist, x_extra_hist, x_extra_future, x_static)
