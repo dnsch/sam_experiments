@@ -948,6 +948,24 @@ def _add_linear_args(parser):
     return parser
 
 
+def _add_nlinear_args(parser):
+    """Add NLinear model architecture arguments."""
+
+    nlinear_group = parser.add_argument_group(
+        "NLinear Model", "NLinear-specific model architecture hyperparameters"
+    )
+
+    nlinear_group.add_argument(
+        "--enc_in",
+        type=int,
+        default=7,
+        metavar="N",
+        help="number of input channels",
+    )
+
+    return parser
+
+
 def _add_patchtst_specific_args(parser):
     """Add PatchTST-specific arguments (after loading common Transformer args)."""
 
@@ -1817,6 +1835,30 @@ def get_linear_config():
     parser = _add_time_series_forecast_args(parser)
     parser = _add_deep_learning_args(parser)
     parser = _add_linear_args(parser)
+    parser = _add_sam_args(parser)
+    parser = _add_gsam_args(parser)
+    parser = _add_loss_landscape_args(parser)
+
+    return parser
+
+
+def get_nlinear_config():
+    """
+    Complete NLinear (Normalization-Linear) configuration parser.
+
+    Includes:
+    - Base config (hardware, model, dataset, experiment)
+    - Time series forecast config (seq_len, pred_len)
+    - Deep learning config (optimizer, hyperparameters)
+    - NLinear model architecture
+    - SAM/GSAM optimization
+    - Loss landscape visualization
+
+    """
+    parser = get_base_config()
+    parser = _add_time_series_forecast_args(parser)
+    parser = _add_deep_learning_args(parser)
+    parser = _add_nlinear_args(parser)
     parser = _add_sam_args(parser)
     parser = _add_gsam_args(parser)
     parser = _add_loss_landscape_args(parser)

@@ -1,24 +1,34 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import numpy as np
 
-class Model(nn.Module):
+from src.base.model import BaseModel
+
+
+class NLinear(BaseModel):
     """
-    Normalization-Linear
+    Normalization-Linear for time series forecasting.
+
+    Subtracts the last value of the input sequence before the linear
+    transformation and adds it back after, helping handle distribution shift.
     """
-    def __init__(self, configs):
-        super(Model, self).__init__()
-        self.seq_len = configs.seq_len
-        self.pred_len = configs.pred_len
+
+    def __init__(
+        self,
+        seq_len: int,
+        pred_len: int,
+        enc_in: int,
+        **kwargs,
+    ):
+        super().__init__(seq_len=seq_len, pred_len=pred_len)
+
+        self.channels = enc_in
         self.Linear = nn.Linear(self.seq_len, self.pred_len)
-        # Use this line if you want to visualize the weights
-        # self.Linear.weight = nn.Parameter((1/self.seq_len)*torch.ones([self.pred_len,self.seq_len]))
 
     def forward(self, x):
         # x: [Batch, Input length, Channel]
-        seq_last = x[:,-1:,:].detach()
+        seq_last = x[:, -1:, :].detach()
         x = x - seq_last
-        x = self.Linear(x.permute(0,2,1)).permute(0,2,1)
+        x = self.Linear(x.permute(0, 2, 1)).permute(0, 2, 1)
         x = x + seq_last
-        return x # [Batch, Output length, Channel]
+        return x  # [Batch, Output length, Channel]
+
