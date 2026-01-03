@@ -535,10 +535,6 @@ class TorchEngine(ABC):
         all_metric_names = self._get_metric_names()
         horizon_metrics = {metric: [] for metric in all_metric_names}
 
-        import pdb
-
-        pdb.set_trace()
-
         for i in range(self.model.pred_len):
             horizon_pred = preds[:, :, i].contiguous()
             horizon_true = labels[:, :, i].contiguous()
