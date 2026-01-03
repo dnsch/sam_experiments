@@ -930,6 +930,24 @@ def _add_dlinear_args(parser):
     return parser
 
 
+def _add_linear_args(parser):
+    """Add Linear model architecture arguments."""
+
+    linear_group = parser.add_argument_group(
+        "Linear Model", "Linear-specific model architecture hyperparameters"
+    )
+
+    linear_group.add_argument(
+        "--enc_in",
+        type=int,
+        default=7,
+        metavar="N",
+        help="number of input channels",
+    )
+
+    return parser
+
+
 def _add_patchtst_specific_args(parser):
     """Add PatchTST-specific arguments (after loading common Transformer args)."""
 
@@ -1775,6 +1793,30 @@ def get_informer_config():
     parser = _add_deep_learning_args(parser)
     parser = _add_formers_common_args(parser)
     parser = _add_formers_specific_args(parser)
+    parser = _add_sam_args(parser)
+    parser = _add_gsam_args(parser)
+    parser = _add_loss_landscape_args(parser)
+
+    return parser
+
+
+def get_linear_config():
+    """
+    Complete Linear configuration parser.
+
+    Includes:
+    - Base config (hardware, model, dataset, experiment)
+    - Time series forecast config (seq_len, pred_len)
+    - Deep learning config (optimizer, hyperparameters)
+    - Linear model architecture
+    - SAM/GSAM optimization
+    - Loss landscape visualization
+
+    """
+    parser = get_base_config()
+    parser = _add_time_series_forecast_args(parser)
+    parser = _add_deep_learning_args(parser)
+    parser = _add_linear_args(parser)
     parser = _add_sam_args(parser)
     parser = _add_gsam_args(parser)
     parser = _add_loss_landscape_args(parser)
