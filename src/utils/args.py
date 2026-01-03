@@ -930,6 +930,65 @@ def _add_dlinear_args(parser):
     return parser
 
 
+def _add_fedformer_args(parser):
+    """Add FEDformer-specific arguments."""
+
+    fedformer_group = parser.add_argument_group(
+        "FEDformer Model", "FEDformer-specific model architecture hyperparameters"
+    )
+
+    fedformer_group.add_argument(
+        "--version",
+        type=str,
+        default="Fourier",
+        choices=["Fourier", "Wavelets"],
+        metavar="VERSION",
+        help="FEDformer version: Fourier or Wavelets",
+    )
+
+    fedformer_group.add_argument(
+        "--mode_select",
+        type=str,
+        default="random",
+        choices=["random", "low"],
+        metavar="MODE",
+        help="mode selection method for Fourier: random or low frequency",
+    )
+    fedformer_group.add_argument(
+        "--modes",
+        type=int,
+        default=32,
+        metavar="N",
+        help="number of Fourier/Wavelet modes to use",
+    )
+    # Wavelet-specific parameters
+    fedformer_group.add_argument(
+        "--wavelet_L",
+        type=int,
+        default=1,
+        metavar="N",
+        help="number of levels for wavelet decomposition",
+    )
+    fedformer_group.add_argument(
+        "--wavelet_base",
+        type=str,
+        default="legendre",
+        choices=["legendre", "chebyshev"],
+        metavar="BASE",
+        help="base function for wavelet transform",
+    )
+    fedformer_group.add_argument(
+        "--cross_activation",
+        type=str,
+        default="tanh",
+        choices=["tanh", "softmax"],
+        metavar="ACTIVATION",
+        help="activation function for cross attention in wavelet version",
+    )
+
+    return parser
+
+
 def _add_linear_args(parser):
     """Add Linear model architecture arguments."""
 
@@ -1780,6 +1839,34 @@ def get_dlinear_config():
     parser = _add_time_series_forecast_args(parser)
     parser = _add_deep_learning_args(parser)
     parser = _add_dlinear_args(parser)
+    parser = _add_sam_args(parser)
+    parser = _add_gsam_args(parser)
+    parser = _add_loss_landscape_args(parser)
+
+    return parser
+
+
+def get_fedformer_config():
+    """
+    Complete FEDformer configuration parser.
+
+    Includes:
+    - Base config (hardware, model, dataset, experiment)
+    - Time series forecast config (seq_len, pred_len)
+    - Deep learning config (optimizer, hyperparameters)
+    - Common Transformer architecture (enc_in, d_model, n_heads, etc.)
+    - Formers-specific config (decoder, embeddings, etc.)
+    - FEDformer-specific config (version, modes, wavelets)
+    - SAM/GSAM optimization
+    - Loss landscape visualization
+
+    """
+    parser = get_base_config()
+    parser = _add_time_series_forecast_args(parser)
+    parser = _add_deep_learning_args(parser)
+    parser = _add_formers_common_args(parser)
+    parser = _add_formers_specific_args(parser)
+    parser = _add_fedformer_args(parser)
     parser = _add_sam_args(parser)
     parser = _add_gsam_args(parser)
     parser = _add_loss_landscape_args(parser)

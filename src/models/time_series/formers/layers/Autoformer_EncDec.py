@@ -7,6 +7,7 @@ class my_Layernorm(nn.Module):
     """
     Special designed layernorm for the seasonal part
     """
+
     def __init__(self, channels):
         super(my_Layernorm, self).__init__()
         self.layernorm = nn.LayerNorm(channels)
@@ -21,6 +22,7 @@ class moving_avg(nn.Module):
     """
     Moving average block to highlight the trend of time series
     """
+
     def __init__(self, kernel_size, stride):
         super(moving_avg, self).__init__()
         self.kernel_size = kernel_size
@@ -40,6 +42,7 @@ class series_decomp(nn.Module):
     """
     Series decomposition block
     """
+
     def __init__(self, kernel_size):
         super(series_decomp, self).__init__()
         self.moving_avg = moving_avg(kernel_size, stride=1)
@@ -50,11 +53,44 @@ class series_decomp(nn.Module):
         return res, moving_mean
 
 
+class series_decomp_multi(nn.Module):
+    """
+    Series decomposition block
+    """
+
+    def __init__(self, kernel_size):
+        super(series_decomp_multi, self).__init__()
+        self.moving_avg = [moving_avg(kernel, stride=1) for kernel in kernel_size]
+        self.layer = torch.nn.Linear(1, len(kernel_size))
+
+    def forward(self, x):
+        moving_mean = []
+        for func in self.moving_avg:
+            moving_avg = func(x)
+            moving_mean.append(moving_avg.unsqueeze(-1))
+        moving_mean = torch.cat(moving_mean, dim=-1)
+        moving_mean = torch.sum(moving_mean * nn.Softmax(-1)(self.layer(x.unsqueeze(-1))), dim=-1)
+        res = x - moving_mean
+        return res, moving_mean
+
+
+class FourierDecomp(nn.Module):
+    def __init__(self):
+        super(FourierDecomp, self).__init__()
+        pass
+
+    def forward(self, x):
+        x_ft = torch.fft.rfft(x, dim=-1)
+
+
 class EncoderLayer(nn.Module):
     """
     Autoformer encoder layer with the progressive decomposition architecture
     """
-    def __init__(self, attention, d_model, d_ff=None, moving_avg=25, dropout=0.1, activation="relu"):
+
+    def __init__(
+        self, attention, d_model, d_ff=None, moving_avg=25, dropout=0.1, activation="relu"
+    ):
         super(EncoderLayer, self).__init__()
         d_ff = d_ff or 4 * d_model
         self.attention = attention
@@ -66,10 +102,7 @@ class EncoderLayer(nn.Module):
         self.activation = F.relu if activation == "relu" else F.gelu
 
     def forward(self, x, attn_mask=None):
-        new_x, attn = self.attention(
-            x, x, x,
-            attn_mask=attn_mask
-        )
+        new_x, attn = self.attention(x, x, x, attn_mask=attn_mask)
         x = x + self.dropout(new_x)
         x, _ = self.decomp1(x)
         y = x
@@ -83,6 +116,7 @@ class Encoder(nn.Module):
     """
     Autoformer encoder
     """
+
     def __init__(self, attn_layers, conv_layers=None, norm_layer=None):
         super(Encoder, self).__init__()
         self.attn_layers = nn.ModuleList(attn_layers)
@@ -113,8 +147,18 @@ class DecoderLayer(nn.Module):
     """
     Autoformer decoder layer with the progressive decomposition architecture
     """
-    def __init__(self, self_attention, cross_attention, d_model, c_out, d_ff=None,
-                 moving_avg=25, dropout=0.1, activation="relu"):
+
+    def __init__(
+        self,
+        self_attention,
+        cross_attention,
+        d_model,
+        c_out,
+        d_ff=None,
+        moving_avg=25,
+        dropout=0.1,
+        activation="relu",
+    ):
         super(DecoderLayer, self).__init__()
         d_ff = d_ff or 4 * d_model
         self.self_attention = self_attention
@@ -125,20 +169,21 @@ class DecoderLayer(nn.Module):
         self.decomp2 = series_decomp(moving_avg)
         self.decomp3 = series_decomp(moving_avg)
         self.dropout = nn.Dropout(dropout)
-        self.projection = nn.Conv1d(in_channels=d_model, out_channels=c_out, kernel_size=3, stride=1, padding=1,
-                                    padding_mode='circular', bias=False)
+        self.projection = nn.Conv1d(
+            in_channels=d_model,
+            out_channels=c_out,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            padding_mode="circular",
+            bias=False,
+        )
         self.activation = F.relu if activation == "relu" else F.gelu
 
     def forward(self, x, cross, x_mask=None, cross_mask=None):
-        x = x + self.dropout(self.self_attention(
-            x, x, x,
-            attn_mask=x_mask
-        )[0])
+        x = x + self.dropout(self.self_attention(x, x, x, attn_mask=x_mask)[0])
         x, trend1 = self.decomp1(x)
-        x = x + self.dropout(self.cross_attention(
-            x, cross, cross,
-            attn_mask=cross_mask
-        )[0])
+        x = x + self.dropout(self.cross_attention(x, cross, cross, attn_mask=cross_mask)[0])
         x, trend2 = self.decomp2(x)
         y = x
         y = self.dropout(self.activation(self.conv1(y.transpose(-1, 1))))
@@ -154,6 +199,7 @@ class Decoder(nn.Module):
     """
     Autoformer encoder
     """
+
     def __init__(self, layers, norm_layer=None, projection=None):
         super(Decoder, self).__init__()
         self.layers = nn.ModuleList(layers)
