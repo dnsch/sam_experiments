@@ -757,10 +757,11 @@ class TorchEngine(ABC):
             # Second forward pass for SAM - apply RevIN again
             x_batch_norm = self._revin_norm(x_batch)
             # TODO: maybe remove flatten output
-            out_batch = self.model(x_batch_norm, False)
+            out_batch = self._forward_pass(x_batch_norm)
             out_batch = self._revin_denorm(out_batch)
 
-            loss = self._compute_loss(out_batch, y_batch)
+            prepared_y_batch = self._prepare_ground_truths(y_batch)
+            loss = self._compute_loss(out_batch, prepared_y_batch)
 
             loss.backward()
             if self._clip_grad_value != 0:
